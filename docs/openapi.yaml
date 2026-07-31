@@ -1,0 +1,2375 @@
+openapi: 3.1.0
+info:
+  title: Smart WiFi Pass API
+  version: 1.0.0
+  description: Django REST API 전체 계약. 외부 SMS, OpenAI, Network Adapter는 Provider 인터페이스와 Demo/규칙 기반 폴백으로
+    동작한다.
+servers:
+- url: http://localhost:8000/api/v1
+  description: Local
+paths:
+  /pos/orders:
+    post:
+      tags:
+      - POS
+      summary: 결제 완료 주문 생성
+      operationId: postPosOrders
+      responses:
+        '200': &id001
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id001
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaidOrderRequest'
+      security:
+      - posSignature: []
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: X-Timestamp
+        in: header
+        required: false
+        schema:
+          type: string
+          format: date-time
+        description: POS_HMAC_SECRET 설정 시 필수
+      - name: X-Nonce
+        in: header
+        required: false
+        schema:
+          type: string
+  /pos/rewards/immediate/{redemptionId}/apply:
+    post:
+      tags:
+      - POS
+      summary: 즉시 리워드 주문 적용
+      operationId: postPosRewardsImmediateRedemptionidApply
+      responses:
+        '200': &id002
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id002
+      parameters:
+      - name: redemptionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+      - name: X-Timestamp
+        in: header
+        required: false
+        schema:
+          type: string
+          format: date-time
+        description: POS_HMAC_SECRET 설정 시 필수
+      - name: X-Nonce
+        in: header
+        required: false
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImmediateBenefitApplyRequest'
+      security:
+      - posSignature: []
+  /public/order-claims/exchange:
+    post:
+      tags:
+      - Public
+      summary: QR 주문 Claim 교환
+      operationId: postPublicOrder-ClaimsExchange
+      responses:
+        '200': &id003
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderClaimExchangeRequest'
+      security: []
+  /public/verifications/start:
+    post:
+      tags:
+      - Public
+      summary: OTP 인증 시작
+      operationId: postPublicVerificationsStart
+      responses:
+        '200': &id004
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id004
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationStartRequest'
+      security: []
+  /public/verifications/confirm:
+    post:
+      tags:
+      - Public
+      summary: OTP 인증 확인
+      operationId: postPublicVerificationsConfirm
+      responses:
+        '200': &id005
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id005
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationConfirmRequest'
+      security: []
+  /public/passes/{passId}:
+    get:
+      tags:
+      - Public
+      summary: Wi-Fi 이용권 조회
+      operationId: getPublicPassesPassid
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      parameters:
+      - name: passId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - portalSession: []
+  /public/passes/{passId}/activate:
+    post:
+      tags:
+      - Public
+      summary: Wi-Fi 이용권 활성화
+      operationId: postPublicPassesPassidActivate
+      responses:
+        '200': &id006
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id006
+      parameters:
+      - name: passId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - portalSession: []
+  /public/kiosk/upsell-hint:
+    get:
+      tags:
+      - Public
+      summary: 다음 리워드 업셀 정보
+      operationId: getPublicKioskUpsell-Hint
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - portalSession: []
+  /public/rewards/grants/{grantId}/options:
+    get:
+      tags:
+      - Rewards
+      summary: 리워드 선택지 조회
+      operationId: getPublicRewardsGrantsGrantidOptions
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      parameters:
+      - name: grantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - portalSession: []
+  /public/rewards/grants/{grantId}/choose:
+    post:
+      tags:
+      - Rewards
+      summary: 리워드 혜택 선택
+      operationId: postPublicRewardsGrantsGrantidChoose
+      responses:
+        '200': &id007
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id007
+      parameters:
+      - name: grantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardChooseRequest'
+      security:
+      - portalSession: []
+  /public/coupons:
+    get:
+      tags:
+      - Rewards
+      summary: 쿠폰함 조회
+      operationId: getPublicCoupons
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - portalSession: []
+  /public/coupons/{couponId}/redeem:
+    post:
+      tags:
+      - Rewards
+      summary: 쿠폰 사용
+      operationId: postPublicCouponsCouponidRedeem
+      responses:
+        '200': &id008
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id008
+      parameters:
+      - name: couponId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - portalSession: []
+  /public/stores/{storeId}/privacy-notice:
+    get:
+      tags:
+      - Public
+      summary: 개인정보 처리 안내 조회
+      operationId: getPublicStoresStoreidPrivacy-Notice
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      parameters:
+      - name: storeId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security: []
+  /admin/auth/login:
+    post:
+      tags:
+      - Admin Auth
+      summary: 관리자 로그인
+      operationId: postAdminAuthLogin
+      responses:
+        '200': &id009
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id009
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      security: []
+  /admin/auth/refresh:
+    post:
+      tags:
+      - Admin Auth
+      summary: 관리자 Refresh Token 회전
+      operationId: postAdminAuthRefresh
+      responses:
+        '200': &id010
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id010
+      security:
+      - refreshCookie: []
+  /admin/auth/logout:
+    post:
+      tags:
+      - Admin Auth
+      summary: 관리자 로그아웃
+      operationId: postAdminAuthLogout
+      responses:
+        '200': &id011
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id011
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/auth/me:
+    get:
+      tags:
+      - Admin Auth
+      summary: 현재 관리자 정보
+      operationId: getAdminAuthMe
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: &id012
+          type: string
+          format: uuid
+  /admin/orders:
+    get:
+      tags:
+      - Admin Order
+      summary: 주문 목록 조회
+      operationId: getAdminOrders
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+  /admin/orders/{orderId}/refund:
+    post:
+      tags:
+      - Admin Order
+      summary: 주문 환불
+      operationId: postAdminOrdersOrderidRefund
+      responses:
+        '200': &id013
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id013
+      parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefundRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/catalog/products:
+    get:
+      tags:
+      - Admin Catalog
+      summary: 메뉴 목록 조회
+      operationId: getAdminCatalogProducts
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+    post:
+      tags:
+      - Admin Catalog
+      summary: 메뉴 생성
+      operationId: postAdminCatalogProducts
+      responses:
+        '200': &id014
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id014
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreateRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/wifi/policies:
+    get:
+      tags:
+      - Admin WiFi
+      summary: Wi-Fi 정책 목록
+      operationId: getAdminWifiPolicies
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+    post:
+      tags:
+      - Admin WiFi
+      summary: Wi-Fi 정책 버전 생성
+      operationId: postAdminWifiPolicies
+      responses:
+        '200': &id015
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id015
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WiFiPolicyRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/wifi/policies/simulate:
+    post:
+      tags:
+      - Admin WiFi
+      summary: Wi-Fi 정책 계산 미리보기
+      operationId: postAdminWifiPoliciesSimulate
+      responses:
+        '200': &id016
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id016
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WiFiSimulateRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/wifi/policies/{policyId}/publish:
+    post:
+      tags:
+      - Admin WiFi
+      summary: Wi-Fi 정책 게시
+      operationId: postAdminWifiPoliciesPolicyidPublish
+      responses:
+        '200': &id017
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id017
+      parameters:
+      - name: policyId
+        in: path
+        required: true
+        schema:
+          type: integer
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/wifi/live-passes:
+    get:
+      tags:
+      - Admin WiFi
+      summary: 실시간 이용권 목록
+      operationId: getAdminWifiLive-Passes
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+  /admin/wifi/passes/{passId}/extensions:
+    get:
+      tags:
+      - Admin WiFi
+      summary: 이용권 연장 이력
+      operationId: getAdminWifiPassesPassidExtensions
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      parameters:
+      - name: passId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/wifi/passes/{passId}/actions:
+    post:
+      tags:
+      - Admin WiFi
+      summary: 이용권 연장·차단·해제
+      operationId: postAdminWifiPassesPassidActions
+      responses:
+        '200': &id018
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id018
+      parameters:
+      - name: passId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManualPassActionRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/rewards/tiers:
+    get:
+      tags:
+      - Admin Rewards
+      summary: 리워드 티어 목록
+      operationId: getAdminRewardsTiers
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+    post:
+      tags:
+      - Admin Rewards
+      summary: 리워드 티어 생성
+      operationId: postAdminRewardsTiers
+      responses:
+        '200': &id019
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id019
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardTierRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/rewards/history:
+    get:
+      tags:
+      - Admin Rewards
+      summary: 리워드 지급 이력
+      operationId: getAdminRewardsHistory
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+  /admin/inventory:
+    get:
+      tags:
+      - Admin Inventory
+      summary: 재고 목록
+      operationId: getAdminInventory
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+    post:
+      tags:
+      - Admin Inventory
+      summary: 재고 품목 생성
+      operationId: postAdminInventory
+      responses:
+        '200': &id020
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id020
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryCreateRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/inventory/{itemId}/adjust:
+    post:
+      tags:
+      - Admin Inventory
+      summary: 재고 수량 조정
+      operationId: postAdminInventoryItemidAdjust
+      responses:
+        '200': &id021
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id021
+      parameters:
+      - name: itemId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryAdjustRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/inventory/scan:
+    post:
+      tags:
+      - Admin Inventory
+      summary: 재고 위험 스캔
+      operationId: postAdminInventoryScan
+      responses:
+        '200': &id022
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id022
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/ai/recommendations:
+    get:
+      tags:
+      - Admin AI
+      summary: AI 추천 목록
+      operationId: getAdminAiRecommendations
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+  /admin/ai/recommendations/generate:
+    post:
+      tags:
+      - Admin AI
+      summary: AI 추천 생성
+      operationId: postAdminAiRecommendationsGenerate
+      responses:
+        '200': &id023
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id023
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationGenerateRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/ai/recommendations/{recommendationId}:
+    patch:
+      tags:
+      - Admin AI
+      summary: AI 추천 수정
+      operationId: patchAdminAiRecommendationsRecommendationid
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      parameters:
+      - name: recommendationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationEditRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/ai/recommendations/{recommendationId}/accept:
+    post:
+      tags:
+      - Admin AI
+      summary: AI 추천 승인 및 프로모션 생성
+      operationId: postAdminAiRecommendationsRecommendationidAccept
+      responses:
+        '200': &id024
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id024
+      parameters:
+      - name: recommendationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationAcceptRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/ai/recommendations/{recommendationId}/reject:
+    post:
+      tags:
+      - Admin AI
+      summary: AI 추천 거절
+      operationId: postAdminAiRecommendationsRecommendationidReject
+      responses:
+        '200': &id025
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id025
+      parameters:
+      - name: recommendationId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationRejectRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/promotions:
+    get:
+      tags:
+      - Admin Promotion
+      summary: 프로모션 목록
+      operationId: getAdminPromotions
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+  /admin/promotions/{promotionId}:
+    patch:
+      tags:
+      - Admin Promotion
+      summary: 프로모션 수정
+      operationId: patchAdminPromotionsPromotionid
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      parameters:
+      - name: promotionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromotionUpdateRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/analytics/hourly:
+    get:
+      tags:
+      - Admin Analytics
+      summary: 시간대별 운영 지표
+      operationId: getAdminAnalyticsHourly
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+  /admin/audit:
+    get:
+      tags:
+      - Admin Operations
+      summary: 감사 로그 목록
+      operationId: getAdminAudit
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+  /admin/notifications:
+    get:
+      tags:
+      - Admin Operations
+      summary: 알림 발송 이력
+      operationId: getAdminNotifications
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+  /admin/anomalies:
+    get:
+      tags:
+      - Admin Operations
+      summary: 운영 이상 현황
+      operationId: getAdminAnomalies
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+  /admin/team:
+    get:
+      tags:
+      - Admin Team
+      summary: 매장 팀 목록
+      operationId: getAdminTeam
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+    post:
+      tags:
+      - Admin Team
+      summary: 매장 팀원 역할 등록·수정
+      operationId: postAdminTeam
+      responses:
+        '200': &id026
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id026
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MembershipRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/privacy/retention:
+    get:
+      tags:
+      - Admin Privacy
+      summary: 개인정보 보존 정책 조회
+      operationId: getAdminPrivacyRetention
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+    patch:
+      tags:
+      - Admin Privacy
+      summary: 개인정보 보존 정책 수정
+      operationId: patchAdminPrivacyRetention
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrivacyRetentionRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/privacy/export:
+    get:
+      tags:
+      - Admin Privacy
+      summary: 점주 보호 증빙 내보내기
+      operationId: getAdminPrivacyExport
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+  /admin/settings:
+    get:
+      tags:
+      - Admin Settings
+      summary: 매장 설정 조회
+      operationId: getAdminSettings
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id012
+    patch:
+      tags:
+      - Admin Settings
+      summary: 매장 설정 수정
+      operationId: patchAdminSettings
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreSettingsRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /stores/{storeId}/events:
+    get:
+      tags:
+      - Realtime
+      summary: 매장 SSE 이벤트
+      operationId: getStoresStoreidEvents
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      parameters:
+      - name: storeId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+components:
+  securitySchemes:
+    portalSession:
+      type: apiKey
+      in: header
+      name: X-Portal-Session
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: smartpass_refresh
+    posSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        data: {}
+        meta:
+          type: object
+          properties:
+            requestId:
+              type: string
+            serverTime: &id027
+              type: string
+              format: date-time
+          required:
+          - requestId
+          - serverTime
+      required:
+      - data
+      - meta
+    Problem:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        retryable:
+          type: boolean
+        requestId:
+          type: string
+      required:
+      - type
+      - title
+      - status
+      - code
+      - detail
+      - retryable
+      - requestId
+    PaidOrderRequest:
+      type: object
+      properties:
+        storeId: *id012
+        externalOrderId:
+          type: string
+        customer:
+          type: object
+          properties:
+            memberId:
+              type:
+              - string
+              - 'null'
+            phone:
+              type:
+              - string
+              - 'null'
+              example: 01012345678
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            properties:
+              productId: *id012
+              quantity:
+                type: integer
+                minimum: 1
+              unitPrice:
+                type: integer
+                minimum: 0
+            required:
+            - productId
+            - quantity
+        totalAmount:
+          type: integer
+          minimum: 0
+        paidAt: *id027
+      required:
+      - storeId
+      - externalOrderId
+      - customer
+      - items
+      - totalAmount
+      - paidAt
+    OrderClaimExchangeRequest:
+      type: object
+      properties:
+        orderClaim:
+          type: string
+      required:
+      - orderClaim
+    ImmediateBenefitApplyRequest:
+      type: object
+      properties:
+        storeId: *id012
+        orderId: *id012
+      required:
+      - storeId
+      - orderId
+    VerificationStartRequest:
+      type: object
+      properties:
+        verificationTicket:
+          type: string
+        phone:
+          type: string
+      required:
+      - verificationTicket
+      - phone
+    VerificationConfirmRequest:
+      type: object
+      properties:
+        challengeId: *id012
+        code:
+          type: string
+          pattern: ^\d{6}$
+      required:
+      - challengeId
+      - code
+    RewardChooseRequest:
+      type: object
+      properties:
+        benefitId: *id012
+        fulfillMode:
+          enum:
+          - IMMEDIATE
+          - COUPON_7D
+      required:
+      - benefitId
+      - fulfillMode
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+      required:
+      - username
+      - password
+    StoreRequest:
+      type: object
+      properties:
+        storeId: *id012
+      required:
+      - storeId
+    RefundRequest:
+      type: object
+      properties:
+        storeId: *id012
+        refundAmount:
+          type: integer
+          minimum: 1
+      required:
+      - storeId
+      - refundAmount
+    ProductCreateRequest:
+      type: object
+      properties:
+        storeId: *id012
+        categoryId: *id012
+        name:
+          type: string
+        price:
+          type: integer
+          minimum: 0
+      required:
+      - storeId
+      - categoryId
+      - name
+      - price
+    WiFiPolicyRequest:
+      type: object
+      properties:
+        storeId: *id012
+        baseMinutes:
+          type: integer
+          minimum: 1
+        quietHoursEnabled:
+          type: boolean
+        quietHoursUntil:
+          type:
+          - string
+          - 'null'
+          format: time
+        amountTiers:
+          type: array
+          items:
+            type: object
+            properties:
+              orderType:
+                enum:
+                - FIRST
+                - ADDITIONAL
+              minAmount:
+                type: integer
+                minimum: 0
+              bonusMinutes:
+                type: integer
+                minimum: 0
+            required:
+            - orderType
+            - minAmount
+            - bonusMinutes
+      required:
+      - storeId
+      - baseMinutes
+      - amountTiers
+    WiFiSimulateRequest:
+      type: object
+      properties:
+        storeId: *id012
+        orderType:
+          enum:
+          - FIRST
+          - ADDITIONAL
+        amount:
+          type: integer
+          minimum: 0
+      required:
+      - storeId
+      - orderType
+      - amount
+    ManualPassActionRequest:
+      type: object
+      properties:
+        storeId: *id012
+        action:
+          enum:
+          - EXTEND
+          - BLOCK
+          - UNBLOCK
+        minutes:
+          type: integer
+          minimum: 1
+      required:
+      - storeId
+      - action
+    RewardTierRequest:
+      type: object
+      properties:
+        storeId: *id012
+        name:
+          type: string
+        thresholdAmount:
+          type: integer
+          minimum: 1
+        sortOrder:
+          type: integer
+          minimum: 0
+        benefits:
+          type: array
+          items:
+            type: object
+            properties:
+              benefitType:
+                type: string
+              title:
+                type: string
+              payload:
+                type: object
+            required:
+            - benefitType
+            - title
+      required:
+      - storeId
+      - name
+      - thresholdAmount
+      - sortOrder
+      - benefits
+    InventoryCreateRequest:
+      type: object
+      properties:
+        storeId: *id012
+        productId: *id012
+        quantity:
+          type: number
+          minimum: 0
+        unit:
+          type: string
+        lowStockThreshold:
+          type: number
+        expiresOn:
+          type:
+          - string
+          - 'null'
+          format: date
+      required:
+      - storeId
+      - productId
+      - quantity
+    InventoryAdjustRequest:
+      type: object
+      properties:
+        quantityDelta:
+          type: number
+        reason:
+          type: string
+      required:
+      - quantityDelta
+      - reason
+    RecommendationGenerateRequest:
+      type: object
+      properties:
+        storeId: *id012
+        type:
+          enum:
+          - SALES_SUMMARY
+          - TIME_SALE
+          - INVENTORY_PROMOTION
+          - MENU_TREND
+      required:
+      - storeId
+      - type
+    RecommendationEditRequest:
+      type: object
+      properties:
+        storeId: *id012
+        version:
+          type: integer
+          minimum: 1
+        payload:
+          type: object
+        reason:
+          type: string
+      required:
+      - storeId
+      - version
+      - payload
+    RecommendationAcceptRequest:
+      type: object
+      properties:
+        storeId: *id012
+        version:
+          type: integer
+          minimum: 1
+      required:
+      - storeId
+      - version
+    RecommendationRejectRequest:
+      type: object
+      properties:
+        storeId: *id012
+        reason:
+          type: string
+      required:
+      - storeId
+    PromotionUpdateRequest:
+      type: object
+      properties:
+        storeId: *id012
+        title:
+          type: string
+        payload:
+          type: object
+        startsAt: *id027
+        endsAt: *id027
+        status:
+          enum:
+          - DRAFT
+          - SCHEDULED
+          - ACTIVE
+          - ENDED
+      required:
+      - storeId
+    MembershipRequest:
+      type: object
+      properties:
+        storeId: *id012
+        userId: *id012
+        role:
+          enum:
+          - OWNER
+          - MANAGER
+          - STAFF
+          - VIEWER
+      required:
+      - storeId
+      - userId
+      - role
+    PrivacyRetentionRequest:
+      type: object
+      properties:
+        storeId: *id012
+        phoneRetentionDays:
+          type: integer
+          minimum: 1
+        verificationRetentionDays:
+          type: integer
+          minimum: 1
+        auditRetentionDays:
+          type: integer
+          minimum: 1
+        noticeText:
+          type: string
+      required:
+      - storeId
+    StoreSettingsRequest:
+      type: object
+      properties:
+        storeId: *id012
+        name:
+          type: string
+        timezone:
+          type: string
+        businessDayCutoff:
+          type: string
+          format: time
+        segment:
+          enum:
+          - UNIVERSITY
+          - FRANCHISE
+        otpSkipEnabled:
+          type: boolean
+      required:
+      - storeId
+  responses:
+    BadRequest:
+      description: 요청 형식 오류
+      content: &id028
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: 인증 실패
+      content: *id028
+    Forbidden:
+      description: 권한 부족
+      content: *id028
+    NotFound:
+      description: 리소스 없음
+      content: *id028
+    Conflict:
+      description: 상태 또는 버전 충돌
+      content: *id028
+    RuleViolation:
+      description: 도메인 규칙 위반
+      content: *id028
