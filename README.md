@@ -1,11 +1,28 @@
 # Smart WiFi Pass Backend
 
+[Backend] Penguin Port 서비스의 백엔드 프로젝트입니다.
+
 카페 주문을 Wi-Fi 이용 시간, 당일 누적 리워드, 운영 데이터와 연결하는 백엔드입니다.
 기획 과정에서 제공된 백엔드 MVP 명세의 핵심 시연 흐름을 기준으로 구현했으며,
 외부 SMS, 네트워크 장비, LLM이 없어도 로컬에서 전체 흐름을 검증할 수 있습니다.
 
 > MVP 핵심 흐름: 주문 → QR/OTP → Wi-Fi 활성화·타이머 → 추가 주문 연장 →
 > 당일 누적 리워드 → 관리자 연장·즉시 차단 → AI 추천 승인
+
+## 기술 스택
+
+| 영역 | 사용 기술 |
+| --- | --- |
+| 언어 | Python 3.12+ |
+| 웹 프레임워크 | Django 5.x~6.x |
+| API | Django REST Framework 3.15+ |
+| 데이터베이스 | SQLite(로컬 기본), PostgreSQL |
+| 인증 | PyJWT Access/Refresh Token, Django Session, Portal Session |
+| 비밀번호 | Argon2id |
+| 비동기 작업·캐시 | Celery, Redis(선택) |
+| 테스트 | Django TestCase, DRF APIClient |
+| API·ERD 문서 | OpenAPI 3.1, DBML |
+| 패키지 관리 | pip, `requirements.txt` |
 
 ## 명세와 현재 구현
 
@@ -54,17 +71,6 @@ flowchart LR
     AI --> Promotion["프로모션 생성"]
 ```
 
-## 기술 구성
-
-- Python 3.12+
-- Django 5.x~6.x
-- Django REST Framework
-- SQLite 또는 PostgreSQL
-- PyJWT 기반 Access/Refresh Token
-- Argon2id 비밀번호 해시
-- Celery/Redis 연동 가능
-- OpenAPI 3.1, DBML ERD
-
 ## 프로젝트 구조
 
 ```text
@@ -84,7 +90,14 @@ penguin-port-back/
 └─ scripts/      # API 문서 생성 스크립트
 ```
 
-## 빠른 시작
+## 시작하기
+
+### 요구 사항
+
+- Python 3.12 이상
+- pip
+- Git
+- PostgreSQL과 Redis는 선택 사항이며, 없어도 SQLite 기반 로컬 실행과 테스트가 가능합니다.
 
 ### 1. 저장소 준비
 
@@ -122,6 +135,20 @@ python3 manage.py runserver
 
 - API Base URL: `http://127.0.0.1:8000/api/v1`
 - Django Admin: `http://127.0.0.1:8000/admin/`
+
+## 주요 명령어
+
+| 명령 | 설명 |
+| --- | --- |
+| `source .venv/bin/activate` | Python 가상환경 활성화 |
+| `python3 manage.py migrate` | 데이터베이스 마이그레이션 적용 |
+| `python3 manage.py createsuperuser` | Django 관리자 계정 생성 |
+| `python3 manage.py runserver` | 로컬 개발 서버 실행 |
+| `python3 manage.py test` | 전체 자동 테스트 실행 |
+| `python3 manage.py test --verbosity 2` | 테스트 이름과 상세 결과 출력 |
+| `python3 manage.py check` | Django 설정·모델 시스템 검사 |
+| `python3 manage.py makemigrations --check --dry-run` | 누락된 마이그레이션 검사 |
+| `python3 scripts/generate_openapi.py` | OpenAPI 문서 재생성 |
 
 ## 환경 변수
 
