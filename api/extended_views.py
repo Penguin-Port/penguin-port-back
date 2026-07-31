@@ -41,7 +41,12 @@ from api.serializers import (
 )
 from api.views import pass_data, success
 from catalog.models import Product, ProductCategory
-from identity.models import RefreshTokenSession, VerificationChallenge
+from identity.models import (
+    RefreshTokenSession,
+    UserIdentity,
+    VerificationChallenge,
+    get_user_public_id,
+)
 from identity.services import confirm_verification, start_verification
 from identity.tokens import issue_token_pair, revoke_refresh_token, rotate_refresh_token
 from inventory.models import InventoryItem
@@ -261,7 +266,7 @@ class AdminLoginView(APIView):
         response = success(
             request,
             {
-                "userId": user.id,
+                "userId": str(get_user_public_id(user)),
                 "username": user.username,
                 "accessToken": pair["accessToken"],
                 "accessExpiresIn": pair["accessExpiresIn"],
@@ -344,7 +349,7 @@ class AdminMeView(APIView):
         return success(
             request,
             {
-                "userId": request.user.id,
+                "userId": str(get_user_public_id(request.user)),
                 "username": request.user.username,
                 "memberships": [
                     {
@@ -1249,7 +1254,7 @@ class AdminTeamView(APIView):
             [
                 {
                     "membershipId": item.id,
-                    "userId": item.user_id,
+                    "userId": str(get_user_public_id(item.user)),
                     "username": item.user.username,
                     "role": item.role,
                 }
@@ -1267,16 +1272,27 @@ class AdminTeamView(APIView):
             )
         except PermissionError as exc:
             return _access_error(request, exc)
+        try:
+            user = UserIdentity.objects.select_related("user").get(
+                id=data["user_id"]
+            ).user
+        except UserIdentity.DoesNotExist:
+            return problem_response(
+                request=request,
+                detail="사용자를 찾을 수 없습니다.",
+                code="USER_NOT_FOUND",
+                status=404,
+            )
         membership, _ = StoreMembership.objects.update_or_create(
             store=store,
-            user_id=data["user_id"],
+            user=user,
             defaults={"role": data["role"]},
         )
         return success(
             request,
             {
                 "membershipId": membership.id,
-                "userId": membership.user_id,
+                "userId": str(data["user_id"]),
                 "role": membership.role,
             },
             status=201,

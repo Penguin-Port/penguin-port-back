@@ -7,6 +7,23 @@ from orders.models import Order
 from stores.models import Store
 
 
+class UserIdentity(models.Model):
+    """외부 API에서 사용하는, Django 사용자 PK와 분리된 공개 UUID."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="public_identity",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+def get_user_public_id(user):
+    identity, _ = UserIdentity.objects.get_or_create(user=user)
+    return identity.id
+
+
 class VerificationChallenge(models.Model):
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"

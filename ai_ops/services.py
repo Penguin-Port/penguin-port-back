@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import Count, Sum
 from django.db.models.functions import TruncHour
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from ai_ops.models import AIRecommendation, AnalyticsHourly, Promotion
 from operations.services import emit_event
@@ -17,10 +18,6 @@ def accept_recommendation(
     recommendation_id,
     store_id,
     expected_version: int,
-    title: str,
-    payload: dict,
-    starts_at,
-    ends_at,
 ) -> Promotion:
     recommendation = AIRecommendation.objects.select_for_update().get(
         id=recommendation_id,
@@ -33,16 +30,30 @@ def accept_recommendation(
         AIRecommendation.Status.EDITED,
     ]:
         raise ValueError("대기 또는 수정 상태의 추천만 승인할 수 있습니다.")
+
+    payload = recommendation.payload
+    if not isinstance(payload, dict):
+        raise ValueError("추천 payload는 객체여야 합니다.")
+    title = payload.get("title")
+    starts_at = parse_datetime(payload.get("startsAt") or "")
+    ends_at = parse_datetime(payload.get("endsAt") or "")
+    if (
+        not isinstance(title, str)
+        or not title.strip()
+        or len(title) > 160
+        or starts_at is None
+        or ends_at is None
+        or not timezone.is_aware(starts_at)
+        or not timezone.is_aware(ends_at)
+    ):
+        raise ValueError("추천에 유효한 title, startsAt, endsAt이 저장되어 있어야 합니다.")
     if ends_at <= starts_at:
         raise ValueError("프로모션 종료 시각은 시작 시각 이후여야 합니다.")
 
     recommendation.status = AIRecommendation.Status.ACCEPTED
-    recommendation.payload = payload
     recommendation.version += 1
     recommendation.decided_at = timezone.now()
-    recommendation.save(
-        update_fields=["status", "payload", "version", "decided_at"]
-    )
+    recommendation.save(update_fields=["status", "version", "decided_at"])
     promotion = Promotion.objects.create(
         store_id=store_id,
         source_recommendation=recommendation,
@@ -141,10 +152,18 @@ def generate_time_sale_recommendation(*, store):
             AnalyticsHourly.objects.filter(store=store).order_by("order_count")[:1]
         )
     quiet = buckets[0] if buckets else None
+    now = timezone.now()
+    starts_at = quiet.bucket_start if quiet else now + timedelta(hours=1)
+    if starts_at <= now:
+        starts_at += timedelta(days=(now - starts_at).days + 1)
+    ends_at = starts_at + timedelta(minutes=120)
     return AIRecommendation.objects.create(
         store=store,
         type=AIRecommendation.Type.TIME_SALE,
         payload={
+            "title": "타임세일 15% 할인",
+            "startsAt": starts_at.isoformat(),
+            "endsAt": ends_at.isoformat(),
             "windowStart": quiet.bucket_start.isoformat() if quiet else None,
             "durationMinutes": 120,
             "discountRate": 15,

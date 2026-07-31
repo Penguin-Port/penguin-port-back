@@ -42,10 +42,6 @@ class RewardChooseSerializer(serializers.Serializer):
 class RecommendationAcceptSerializer(serializers.Serializer):
     storeId = serializers.UUIDField(source="store_id")
     version = serializers.IntegerField(min_value=1)
-    title = serializers.CharField(max_length=160)
-    payload = serializers.JSONField()
-    startsAt = serializers.DateTimeField(source="starts_at")
-    endsAt = serializers.DateTimeField(source="ends_at")
 
 
 class VerificationStartSerializer(serializers.Serializer):
@@ -101,7 +97,9 @@ class WiFiPolicySimulateSerializer(serializers.Serializer):
 class InventoryCreateSerializer(serializers.Serializer):
     storeId = serializers.UUIDField(source="store_id")
     productId = serializers.UUIDField(source="product_id")
-    quantity = serializers.DecimalField(max_digits=12, decimal_places=2)
+    quantity = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=0
+    )
     unit = serializers.CharField(max_length=20, default="EA")
     lowStockThreshold = serializers.DecimalField(
         source="low_stock_threshold", max_digits=12, decimal_places=2, default=0
@@ -180,7 +178,7 @@ class PromotionUpdateSerializer(serializers.Serializer):
 
 class MembershipUpsertSerializer(serializers.Serializer):
     storeId = serializers.UUIDField(source="store_id")
-    userId = serializers.IntegerField(source="user_id")
+    userId = serializers.UUIDField(source="user_id")
     role = serializers.ChoiceField(choices=["OWNER", "MANAGER", "STAFF", "VIEWER"])
 
 

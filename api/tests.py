@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 from unittest import mock
+from uuid import UUID
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -16,6 +17,9 @@ import yaml
 
 from ai_ops.models import AIRecommendation, Promotion
 from catalog.models import Product, ProductCategory
+from identity.models import get_user_public_id
+from inventory.models import InventoryItem
+from operations.models import AuditLog
 from rewards.models import (
     Coupon,
     DailySpendBalance,
@@ -25,7 +29,6 @@ from rewards.models import (
     RewardTierBenefit,
 )
 from rewards.services import apply_immediate_redemption, choose_benefit
-from operations.models import AuditLog
 from stores.models import Store, StoreMembership
 from wifi.models import ScheduledAction, WiFiAmountTier, WiFiPass, WiFiPolicy
 from wifi.workers import execute_scheduled_action
@@ -309,27 +312,68 @@ class AdminApiTests(PurchaseRewardWifiFlowTests):
         self.assertEqual(response.json()["data"]["totalMinutes"], 150)
 
     def test_ai_recommendation_accept_creates_promotion(self):
+        starts_at = timezone.now() + timedelta(hours=1)
         recommendation = AIRecommendation.objects.create(
             store=self.store,
             type=AIRecommendation.Type.TIME_SALE,
-            payload={"discountRate": 15},
+            payload={
+                "title": "오후 타임세일",
+                "discountRate": 15,
+                "startsAt": starts_at.isoformat(),
+                "endsAt": (starts_at + timedelta(hours=2)).isoformat(),
+            },
             reason="한산 시간대",
         )
-        starts_at = timezone.now() + timedelta(hours=1)
         response = self.client.post(
             f"/api/v1/admin/ai/recommendations/{recommendation.id}/accept",
             {
                 "storeId": str(self.store.id),
                 "version": 1,
-                "title": "오후 타임세일",
-                "payload": {"discountRate": 15},
-                "startsAt": starts_at.isoformat(),
-                "endsAt": (starts_at + timedelta(hours=2)).isoformat(),
             },
             format="json",
         )
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(Promotion.objects.count(), 1)
+        promotion = Promotion.objects.get()
+        self.assertEqual(promotion.title, "오후 타임세일")
+        self.assertEqual(promotion.payload, recommendation.payload)
+
+    def test_inventory_creation_rejects_negative_quantity(self):
+        response = self.client.post(
+            "/api/v1/admin/inventory",
+            {
+                "storeId": str(self.store.id),
+                "productId": str(self.product.id),
+                "quantity": "-0.01",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(InventoryItem.objects.count(), 0)
+
+    def test_team_api_uses_public_uuid_user_ids(self):
+        staff = get_user_model().objects.create_user(
+            username="staff", password="test-password"
+        )
+        staff_id = get_user_public_id(staff)
+
+        create = self.client.post(
+            "/api/v1/admin/team",
+            {
+                "storeId": str(self.store.id),
+                "userId": str(staff_id),
+                "role": StoreMembership.Role.STAFF,
+            },
+            format="json",
+        )
+        self.assertEqual(create.status_code, 201)
+        self.assertEqual(UUID(create.json()["data"]["userId"]), staff_id)
+
+        listing = self.client.get(
+            "/api/v1/admin/team", {"storeId": str(self.store.id)}
+        )
+        listed_user_ids = {item["userId"] for item in listing.json()["data"]}
+        self.assertIn(str(staff_id), listed_user_ids)
 
     def test_inventory_risk_scan_creates_recommendation(self):
         create = self.client.post(
@@ -361,6 +405,7 @@ class AdminApiTests(PurchaseRewardWifiFlowTests):
             format="json",
         )
         self.assertEqual(login_response.status_code, 200)
+        UUID(login_response.json()["data"]["userId"])
         access_token = login_response.json()["data"]["accessToken"]
         self.assertIn("smartpass_refresh", login_response.cookies)
 

@@ -224,7 +224,7 @@ schemas = {
         {
             **store_id,
             "productId": uuid_schema,
-            "quantity": {"type": "number"},
+            "quantity": {"type": "number", "minimum": 0},
             "unit": {"type": "string"},
             "lowStockThreshold": {"type": "number"},
             "expiresOn": {"type": ["string", "null"], "format": "date"},
@@ -262,12 +262,8 @@ schemas = {
         {
             **store_id,
             "version": {"type": "integer", "minimum": 1},
-            "title": {"type": "string"},
-            "payload": {"type": "object"},
-            "startsAt": date_time_schema,
-            "endsAt": date_time_schema,
         },
-        ["storeId", "version", "title", "payload", "startsAt", "endsAt"],
+        ["storeId", "version"],
     ),
     "RecommendationRejectRequest": object_schema(
         {**store_id, "reason": {"type": "string"}}, ["storeId"]
@@ -286,7 +282,7 @@ schemas = {
     "MembershipRequest": object_schema(
         {
             **store_id,
-            "userId": {"type": "integer"},
+            "userId": uuid_schema,
             "role": {"enum": ["OWNER", "MANAGER", "STAFF", "VIEWER"]},
         },
         ["storeId", "userId", "role"],

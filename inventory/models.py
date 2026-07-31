@@ -20,6 +20,12 @@ class InventoryItem(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(quantity__gte=0),
+                name="inventory_quantity_non_negative",
+            )
+        ]
         indexes = [
             models.Index(fields=["store", "expires_on"]),
             models.Index(fields=["store", "risk_score"]),

@@ -2212,6 +2212,7 @@ components:
         productId: *id012
         quantity:
           type: number
+          minimum: 0
         unit:
           type: string
         lowStockThreshold:
@@ -2270,19 +2271,9 @@ components:
         version:
           type: integer
           minimum: 1
-        title:
-          type: string
-        payload:
-          type: object
-        startsAt: *id027
-        endsAt: *id027
       required:
       - storeId
       - version
-      - title
-      - payload
-      - startsAt
-      - endsAt
     RecommendationRejectRequest:
       type: object
       properties:
@@ -2313,8 +2304,7 @@ components:
       type: object
       properties:
         storeId: *id012
-        userId:
-          type: integer
+        userId: *id012
         role:
           enum:
           - OWNER

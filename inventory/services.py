@@ -1,7 +1,8 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db import transaction
+from django.utils import timezone
 
 from ai_ops.models import AIRecommendation
 from inventory.models import InventoryEvent, InventoryItem
@@ -57,6 +58,8 @@ def scan_inventory_risk(*, store=None, today=None):
             item.risk_score = score
             item.save(update_fields=["risk_score", "updated_at"])
         if score >= 45:
+            starts_at = timezone.now()
+            ends_at = starts_at + timedelta(days=7)
             InventoryEvent.objects.create(
                 item=item,
                 type=InventoryEvent.Type.RISK_DETECTED,
@@ -66,6 +69,9 @@ def scan_inventory_risk(*, store=None, today=None):
                 store=item.store,
                 type=AIRecommendation.Type.INVENTORY_PROMOTION,
                 payload={
+                    "title": f"{item.product.name} 재고 소진 할인",
+                    "startsAt": starts_at.isoformat(),
+                    "endsAt": ends_at.isoformat(),
                     "productIds": [str(item.product_id)],
                     "discountRate": 15,
                     "source": "INVENTORY_RULE",

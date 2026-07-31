@@ -155,6 +155,14 @@ Table auth_users [headercolor: #475569] {
   Note: "Django 인증 사용자. 비밀번호 원문과 Refresh Token을 저장하지 않는다."
 }
 
+Table user_identities [headercolor: #2563EB] {
+  id uuid [pk]
+  user_id bigint [not null, unique, ref: - auth_users.id]
+  created_at timestamptz [not null]
+
+  Note: "외부 API의 userId로 노출하는 안정적인 공개 UUID. Django 내부 PK는 노출하지 않는다."
+}
+
 Table stores [headercolor: #2563EB] {
   id uuid [pk]
   name varchar(120) [not null]
@@ -512,7 +520,7 @@ Table inventory_items [headercolor: #22C55E] {
   id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
   product_id uuid [not null, unique, ref: - products.id]
-  quantity decimal(12,2) [not null, default: 0]
+  quantity decimal(12,2) [not null, default: 0, note: "0 이상"]
   unit varchar(20) [not null, default: "EA"]
   low_stock_threshold decimal(12,2) [not null, default: 0]
   expires_on date
@@ -598,6 +606,7 @@ Table outbox_events [headercolor: #64748B] {
 
 TableGroup IdentityAndStore [color: #2563EB] {
   auth_users
+  user_identities
   stores
   store_memberships
   verification_challenges
