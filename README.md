@@ -464,21 +464,12 @@ python3 manage.py check
 - DBML ERD: [`docs/schema.dbml`](docs/schema.dbml)
 - ERD 설명: [`docs/ERD_SPEC.md`](docs/ERD_SPEC.md)
 - 구현 상태: [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md)
-- Issue·브랜치·커밋·PR 규칙: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 
 OpenAPI 문서는 아래 명령으로 다시 생성합니다.
 
 ```bash
 python3 scripts/generate_openapi.py
 ```
-
-## 기여하기
-
-모든 작업은 GitHub Issue에서 시작하고, 이슈 번호가 포함된 짧은 수명의 브랜치에서
-진행합니다. 커밋 메시지는 `<type>: <한글 제목>` 형식을 사용하며, PR은 최소 1명 이상의
-팀원에게 Approve를 받은 뒤 작성자가 직접 충돌을 해결하고 머지합니다.
-
-자세한 절차와 커밋 타입은 [`CONTRIBUTING.md`](CONTRIBUTING.md)를 확인하세요.
 
 ## 데모와 운영 환경의 차이
 
