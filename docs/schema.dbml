@@ -1,673 +1,190 @@
-// Smart WiFi Pass MVP ERD
-// Source: Django models + Smart_WiFi_Pass_Backend_Spec.pdf
-// DBMS: PostgreSQL 16+
-
-Project SmartWiFiPass {
+Project SmartWiFiPassMVP {
   database_type: "PostgreSQL"
-  Note: '''
-    AI 카페 운영 파트너 백엔드 ERD.
-    주문, 당일 누적 리워드, Wi-Fi 이용권, AI 추천 승인 흐름을 정의한다.
-    금액은 KRW 정수, 시간은 UTC timestamptz로 저장한다.
-  '''
+  Note: "PDF 축소 MVP. Supabase PostgreSQL + FastAPI + SQLAlchemy/Alembic"
 }
 
-Enum StoreSegment {
-  UNIVERSITY
-  FRANCHISE
-}
-
-Enum StoreRole {
-  OWNER
-  MANAGER
-  STAFF
-  VIEWER
-}
-
-Enum ProductKind {
-  DRINK
-  FOOD
-  DESSERT
-}
-
-Enum OrderStatus {
-  PENDING
-  PAID
-  CANCELLED
-  REFUNDED
-}
-
-Enum RewardGrantStatus {
-  AWAITING_CHOICE
-  FULFILLED
-  REVOKED
-  EXPIRED
-}
-
-Enum RewardFulfillMode {
-  IMMEDIATE
-  COUPON_7D
-}
-
-Enum BenefitType {
-  DISCOUNT_COUPON
-  MILEAGE
-  FREE_SHOT
-  FREE_SIZE_UP
-  DESSERT_DISCOUNT
-  WIFI_DAY_PASS
-  DRINK_DISCOUNT
-  MENU_TRIAL
-}
-
-Enum CouponStatus {
-  AVAILABLE
-  REDEEMED
-  EXPIRED
-  REVOKED
-}
-
-Enum ImmediateRedemptionStatus {
-  AVAILABLE
-  APPLIED
-  EXPIRED
-  REVOKED
-}
-
-Enum WiFiOrderType {
-  FIRST
-  ADDITIONAL
-}
-
-Enum WiFiPassStatus {
-  ISSUED
-  ACTIVATING
-  ACTIVE
-  EXPIRING_SOON
-  EXPIRED
-  CANCELLED
-  BLOCKED
-  FAILED
-}
-
-Enum ScheduledActionType {
-  EXPIRE_PASS
-  SEND_EXPIRING_NOTIFICATION
-  REVOKE_NETWORK_ACCESS
-}
-
-Enum AIRecommendationType {
-  SALES_SUMMARY
-  TIME_SALE
-  INVENTORY_PROMOTION
-  MENU_TREND
-}
-
-Enum AIRecommendationStatus {
-  PENDING
-  ACCEPTED
-  REJECTED
-  EDITED
-}
-
-Enum PromotionStatus {
-  DRAFT
-  SCHEDULED
-  ACTIVE
-  ENDED
-}
-
-Enum VerificationStatus {
-  PENDING
-  VERIFIED
-  EXPIRED
-  LOCKED
-}
-
-Enum InventoryEventType {
-  RECEIVED
-  CONSUMED
-  ADJUSTED
-  RISK_DETECTED
-  EXPIRED
-}
-
-Enum NotificationChannel {
-  SMS
-  ALIMTALK
-  IN_APP
-}
-
-Enum NotificationStatus {
-  PENDING
-  SENT
-  FAILED
-}
-
-Table auth_users [headercolor: #475569] {
-  id bigint [pk, increment]
-  username varchar(150) [not null, unique]
-  email varchar(254) [not null]
-  password varchar(128) [not null, note: "Argon2id 해시"]
-  is_active boolean [not null, default: true]
-  is_staff boolean [not null, default: false]
-  date_joined timestamptz [not null]
-
-  Note: "Django 인증 사용자. 비밀번호 원문과 Refresh Token을 저장하지 않는다."
-}
-
-Table user_identities [headercolor: #2563EB] {
-  id uuid [pk]
-  user_id bigint [not null, unique, ref: - auth_users.id]
-  created_at timestamptz [not null]
-
-  Note: "외부 API의 userId로 노출하는 안정적인 공개 UUID. Django 내부 PK는 노출하지 않는다."
-}
-
-Table stores [headercolor: #2563EB] {
+Table stores {
   id uuid [pk]
   name varchar(120) [not null]
   timezone varchar(64) [not null, default: "Asia/Seoul"]
-  business_day_cutoff time [not null, default: "00:00:00"]
-  segment StoreSegment [not null, default: "UNIVERSITY"]
+  business_day_cutoff varchar(5) [not null, default: "00:00"]
   otp_skip_enabled boolean [not null, default: false]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-
-  Note: "매장과 영업일 기준 정보. 모든 운영 데이터의 테넌트 기준이다."
 }
 
-Table store_memberships [headercolor: #2563EB] {
-  id bigint [pk, increment]
-  store_id uuid [not null, ref: > stores.id]
-  user_id bigint [not null, ref: > auth_users.id]
-  role StoreRole [not null]
-
-  indexes {
-    (store_id, user_id) [unique, name: "uq_store_user_membership"]
-  }
-}
-
-Table product_categories [headercolor: #0D9488] {
+Table products {
   id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
-  name varchar(80) [not null]
-  kind ProductKind [not null]
-
-  Note: "음료, 음식, 디저트 카테고리."
-}
-
-Table products [headercolor: #0D9488] {
-  id uuid [pk]
-  store_id uuid [not null, ref: > stores.id]
-  category_id uuid [not null, ref: > product_categories.id]
   name varchar(120) [not null]
-  price integer [not null, note: "KRW, 0 이상"]
+  price integer [not null]
   is_active boolean [not null, default: true]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
 
   indexes {
-    (store_id, is_active) [name: "idx_products_store_active"]
+    (store_id, name) [unique]
   }
 }
 
-Table orders [headercolor: #F59E0B] {
+Table orders {
   id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
   external_order_id varchar(120) [not null]
-  customer_key varchar(128) [not null, note: "member:{id} 또는 phone:{HMAC hash}"]
-  phone_last4 varchar(4)
-  phone_ciphertext text [note: "Fernet 암호화, 보존기간 이후 빈 값으로 폐기"]
-  status OrderStatus [not null, default: "PAID"]
-  total_amount integer [not null, note: "KRW, 0 이상"]
-  refunded_amount integer [not null, default: 0]
+  customer_key varchar(160) [not null]
+  phone varchar(40)
+  total_amount integer [not null]
   business_date date [not null]
   paid_at timestamptz [not null]
   created_at timestamptz [not null]
-  updated_at timestamptz [not null]
 
   indexes {
-    (store_id, external_order_id) [unique, name: "uq_store_external_order"]
-    (store_id, business_date, customer_key) [name: "idx_order_daily_customer"]
+    (store_id, external_order_id) [unique]
   }
-
-  Note: "PAID 주문만 누적 구매액과 Wi-Fi 정책 평가에 반영한다."
 }
 
-Table order_items [headercolor: #F59E0B] {
+Table order_items {
   id uuid [pk]
   order_id uuid [not null, ref: > orders.id]
   product_id uuid [not null, ref: > products.id]
   name_snapshot varchar(120) [not null]
-  quantity integer [not null, note: "1 이상"]
-  unit_price integer [not null, note: "결제 당시 KRW 가격"]
+  quantity integer [not null]
+  unit_price integer [not null]
 }
 
-Table idempotency_records [headercolor: #F59E0B] {
-  id bigint [pk, increment]
-  store_id uuid [not null, ref: > stores.id]
-  key varchar(120) [not null]
-  request_hash varchar(64) [not null]
-  response_body jsonb [not null]
-  response_status smallint [not null]
-  created_at timestamptz [not null]
-
-  indexes {
-    (store_id, key) [unique, name: "uq_store_idempotency"]
-  }
-
-  Note: "POS 재시도 시 주문이 중복 생성되지 않도록 응답을 보관한다."
-}
-
-Table order_claims [headercolor: #F59E0B] {
+Table order_claims {
   id uuid [pk]
   order_id uuid [not null, unique, ref: - orders.id]
   token_hash varchar(64) [not null, unique]
   expires_at timestamptz [not null]
   exchanged_at timestamptz
   created_at timestamptz [not null]
-
-  Note: "영수증 QR에 포함되는 1회용 Claim. Token 원문은 저장하지 않는다."
 }
 
-Table daily_spend_balances [headercolor: #8B5CF6] {
-  id bigint [pk, increment]
+Table otp_challenges {
+  id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
+  order_id uuid [not null, ref: > orders.id]
+  customer_key varchar(160) [not null]
+  phone varchar(40) [not null]
+  code_hash varchar(128) [not null]
+  status varchar(20) [not null, default: "PENDING"]
+  attempts integer [not null, default: 0]
+  expires_at timestamptz [not null]
+  verified_at timestamptz
+  created_at timestamptz [not null]
+}
+
+Table demo_messages {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  channel varchar(20) [not null, default: "SMS"]
+  destination varchar(40) [not null]
+  body text [not null]
+  payload jsonb [not null, default: "{}"]
+  created_at timestamptz [not null]
+}
+
+Table wifi_passes {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  customer_key varchar(160) [not null]
   business_date date [not null]
-  customer_key varchar(128) [not null]
-  total_amount integer [not null, default: 0]
+  status varchar(24) [not null, default: "ISSUED"]
+  issued_at timestamptz [not null]
+  activated_at timestamptz
+  expires_at timestamptz [not null]
   version integer [not null, default: 1]
-  updated_at timestamptz [not null]
+  policy_snapshot jsonb [not null, default: "{}"]
+  network_reference varchar(200)
 
   indexes {
-    (store_id, business_date, customer_key) [unique, name: "uq_daily_spend"]
+    (store_id, customer_key, business_date) [unique, name: "uq_pass_daily_customer"]
+    (status, expires_at) [name: "idx_pass_expiration"]
   }
-
-  Note: "결제 확정 주문의 당일 누적 금액. 행 잠금 또는 원자적 UPSERT로 갱신한다."
 }
 
-Table reward_tiers [headercolor: #8B5CF6] {
+Table daily_spend_balances {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  business_date date [not null]
+  customer_key varchar(160) [not null]
+  total_amount integer [not null, default: 0]
+
+  indexes {
+    (store_id, business_date, customer_key) [unique]
+  }
+}
+
+Table reward_tiers {
   id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
   name varchar(80) [not null]
   threshold_amount integer [not null]
   sort_order integer [not null]
-  is_active boolean [not null, default: true]
 
   indexes {
-    (store_id, threshold_amount) [unique, name: "uq_store_reward_threshold"]
-    (store_id, sort_order) [name: "idx_reward_tier_order"]
+    (store_id, threshold_amount) [unique]
   }
 }
 
-Table reward_tier_benefits [headercolor: #8B5CF6] {
+Table reward_benefits {
   id uuid [pk]
   tier_id uuid [not null, ref: > reward_tiers.id]
-  benefit_type BenefitType [not null]
+  benefit_type varchar(40) [not null]
   title varchar(120) [not null]
   payload jsonb [not null, default: "{}"]
-  is_active boolean [not null, default: true]
-
-  Note: "티어별 고객 선택 가능 혜택 풀."
 }
 
-Table reward_grants [headercolor: #8B5CF6] {
+Table reward_grants {
   id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
   business_date date [not null]
-  customer_key varchar(128) [not null]
+  customer_key varchar(160) [not null]
   tier_id uuid [not null, ref: > reward_tiers.id]
-  status RewardGrantStatus [not null, default: "AWAITING_CHOICE"]
-  chosen_benefit_id uuid [ref: > reward_tier_benefits.id]
-  fulfill_mode RewardFulfillMode
+  status varchar(24) [not null, default: "AWAITING_CHOICE"]
+  chosen_benefit_id uuid [ref: > reward_benefits.id]
+  fulfill_mode varchar(20)
   created_at timestamptz [not null]
-  fulfilled_at timestamptz
 
   indexes {
-    (store_id, business_date, customer_key, tier_id) [unique, name: "uq_daily_tier_grant"]
+    (store_id, business_date, customer_key, tier_id) [unique]
   }
-
-  Note: "같은 영업일과 티어의 중복 지급을 DB 제약으로 차단한다."
 }
 
-Table coupons [headercolor: #8B5CF6] {
+Table coupons {
   id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
-  customer_key varchar(128) [not null]
-  reward_grant_id uuid [not null, unique, ref: - reward_grants.id]
-  status ImmediateRedemptionStatus [not null, default: "AVAILABLE"]
+  customer_key varchar(160) [not null]
+  grant_id uuid [not null, unique, ref: - reward_grants.id]
+  status varchar(20) [not null, default: "AVAILABLE"]
   benefit_snapshot jsonb [not null]
   expires_at timestamptz [not null]
   redeemed_at timestamptz
-  created_at timestamptz [not null]
-
-  indexes {
-    (store_id, customer_key, status) [name: "idx_coupon_wallet"]
-  }
 }
 
-Table immediate_benefit_redemptions [headercolor: #8B5CF6] {
-  id uuid [pk]
-  reward_grant_id uuid [not null, unique, ref: - reward_grants.id]
-  status CouponStatus [not null, default: "AVAILABLE"]
-  benefit_snapshot jsonb [not null, default: "{}"]
-  applied_order_id uuid [ref: > orders.id]
-  expires_at timestamptz [not null]
-  applied_at timestamptz
-  created_at timestamptz [not null]
-
-  Note: "즉시 혜택을 POS 주문에 한 번만 적용하기 위한 교환 레코드."
-}
-
-Table wifi_policies [headercolor: #06B6D4] {
-  id bigint [pk, increment]
-  store_id uuid [not null, ref: > stores.id]
-  version integer [not null]
-  base_minutes integer [not null, default: 120]
-  quiet_hours_enabled boolean [not null, default: false]
-  quiet_hours_until time
-  is_published boolean [not null, default: false]
-  created_at timestamptz [not null]
-
-  indexes {
-    (store_id, version) [unique, name: "uq_store_wifi_policy_version"]
-  }
-}
-
-Table wifi_amount_tiers [headercolor: #06B6D4] {
-  id bigint [pk, increment]
-  policy_id bigint [not null, ref: > wifi_policies.id]
-  order_type WiFiOrderType [not null]
-  min_amount integer [not null]
-  bonus_minutes integer [not null]
-
-  indexes {
-    (policy_id, order_type, min_amount) [unique, name: "uq_policy_order_amount"]
-  }
-
-  Note: "FIRST는 기본 시간에 보너스를 추가하고 ADDITIONAL은 연장 시간을 계산한다."
-}
-
-Table wifi_passes [headercolor: #06B6D4] {
+Table ai_recommendations {
   id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
-  customer_key varchar(128) [not null]
-  business_date date [not null]
-  status WiFiPassStatus [not null, default: "ISSUED"]
-  issued_at timestamptz [not null]
-  activated_at timestamptz
-  expires_at timestamptz [not null]
-  policy_version integer [not null]
-  policy_snapshot json [not null, note: "발급·연장 시 적용된 정책 스냅샷"]
-  pass_version integer [not null, default: 1]
-  network_reference varchar(200)
-
-  indexes {
-    (store_id, business_date, customer_key) [name: "idx_wifi_pass_daily_customer"]
-    (status, expires_at) [name: "idx_wifi_pass_expiration"]
-  }
-}
-
-Table pass_extensions [headercolor: #06B6D4] {
-  id uuid [pk]
-  wifi_pass_id uuid [not null, ref: > wifi_passes.id]
-  order_id uuid [not null, ref: > orders.id]
-  minutes integer [not null]
-  reason varchar(40) [not null, note: "FIRST_ORDER, ADDITIONAL_ORDER, REWARD_DAY_PASS"]
-  created_at timestamptz [not null]
-}
-
-Table scheduled_actions [headercolor: #06B6D4] {
-  id uuid [pk]
-  wifi_pass_id uuid [not null, ref: > wifi_passes.id]
-  action_type ScheduledActionType [not null]
-  execute_at timestamptz [not null]
-  pass_version integer [not null]
-  completed_at timestamptz
-  attempts integer [not null, default: 0]
-
-  indexes {
-    (completed_at, execute_at) [name: "idx_pending_scheduled_action"]
-  }
-
-  Note: "작업의 pass_version과 현재 이용권 버전이 다르면 이전 만료 작업을 건너뛴다."
-}
-
-Table ai_recommendations [headercolor: #EC4899] {
-  id uuid [pk]
-  store_id uuid [not null, ref: > stores.id]
-  type AIRecommendationType [not null]
+  type varchar(40) [not null, default: "TIME_SALE"]
   payload jsonb [not null]
   reason text [not null]
-  evidence jsonb [not null]
-  confidence decimal(4,3)
-  status AIRecommendationStatus [not null, default: "PENDING"]
+  status varchar(20) [not null, default: "PENDING"]
   version integer [not null, default: 1]
   created_at timestamptz [not null]
   decided_at timestamptz
-
-  indexes {
-    (store_id, status, created_at) [name: "idx_ai_recommendation_queue"]
-  }
-
-  Note: "AI는 추천만 생성하며 점주 승인 전에는 운영 데이터에 반영하지 않는다."
 }
 
-Table promotions [headercolor: #EC4899] {
+Table promotions {
   id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
-  source_recommendation_id uuid [not null, unique, ref: - ai_recommendations.id]
+  recommendation_id uuid [not null, unique, ref: - ai_recommendations.id]
   title varchar(160) [not null]
   payload jsonb [not null]
   starts_at timestamptz [not null]
   ends_at timestamptz [not null]
-  status PromotionStatus [not null, default: "SCHEDULED"]
-  created_at timestamptz [not null]
-
-  indexes {
-    (store_id, status, starts_at, ends_at) [name: "idx_active_promotions"]
-  }
-
-  Note: "승인된 AI 추천 1건에서 프로모션 최대 1건을 생성한다."
+  status varchar(20) [not null, default: "SCHEDULED"]
 }
 
-Table analytics_hourly [headercolor: #EC4899] {
-  id bigint [pk, increment]
-  store_id uuid [not null, ref: > stores.id]
-  bucket_start timestamptz [not null]
-  order_count integer [not null, default: 0]
-  gross_sales integer [not null, default: 0]
-  wifi_active_count integer [not null, default: 0]
-  wifi_active_minutes integer [not null, default: 0]
-  menu_sales jsonb [not null, default: "{}"]
-  repeat_customer_count integer [not null, default: 0]
-  generated_at timestamptz [not null]
-
-  indexes {
-    (store_id, bucket_start) [unique, name: "uq_store_hourly_bucket"]
-  }
-}
-
-Table verification_challenges [headercolor: #2563EB] {
+Table admin_users {
   id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
-  order_id uuid [not null, ref: > orders.id]
-  customer_key varchar(128) [not null]
-  phone_last4 varchar(4) [not null]
-  code_hash varchar(64) [not null]
-  status VerificationStatus [not null, default: "PENDING"]
-  attempts smallint [not null, default: 0]
-  max_attempts smallint [not null, default: 5]
-  expires_at timestamptz [not null]
-  verified_at timestamptz
-  created_at timestamptz [not null]
-
-  Note: "OTP 원문은 저장하지 않으며 최대 시도 횟수와 만료 시각을 검사한다."
-}
-
-Table demo_messages [headercolor: #2563EB] {
-  id uuid [pk]
-  store_id uuid [not null, ref: > stores.id]
-  channel varchar(20) [not null, default: "SMS"]
-  destination_last4 varchar(4)
-  body text [not null]
-  payload jsonb [not null, default: "{}"]
-  created_at timestamptz [not null]
-
-  Note: "외부 SMS 없이 OTP와 데모 알림을 확인하는 Demo Inbox."
-}
-
-Table refresh_token_sessions [headercolor: #2563EB] {
-  id uuid [pk]
-  user_id bigint [not null, ref: > auth_users.id]
-  jti_hash varchar(64) [not null, unique]
-  expires_at timestamptz [not null]
-  revoked_at timestamptz
-  rotated_from_id uuid [ref: > refresh_token_sessions.id]
-  created_at timestamptz [not null]
-
-  Note: "Refresh Token 원문은 HttpOnly Cookie에만 두고 서버에는 jti hash만 저장한다."
-}
-
-Table inventory_items [headercolor: #22C55E] {
-  id uuid [pk]
-  store_id uuid [not null, ref: > stores.id]
-  product_id uuid [not null, unique, ref: - products.id]
-  quantity decimal(12,2) [not null, default: 0, note: "0 이상"]
-  unit varchar(20) [not null, default: "EA"]
-  low_stock_threshold decimal(12,2) [not null, default: 0]
-  expires_on date
-  risk_score decimal(5,2) [not null, default: 0]
-  updated_at timestamptz [not null]
-
-  indexes {
-    (store_id, expires_on) [name: "idx_inventory_expiration"]
-    (store_id, risk_score) [name: "idx_inventory_risk"]
-  }
-}
-
-Table inventory_events [headercolor: #22C55E] {
-  id uuid [pk]
-  item_id uuid [not null, ref: > inventory_items.id]
-  type InventoryEventType [not null]
-  quantity_delta decimal(12,2) [not null, default: 0]
-  reason varchar(240)
-  occurred_at timestamptz [not null]
-}
-
-Table notifications [headercolor: #64748B] {
-  id uuid [pk]
-  store_id uuid [not null, ref: > stores.id]
-  channel NotificationChannel [not null]
-  template varchar(80) [not null]
-  destination_last4 varchar(4)
-  payload jsonb [not null, default: "{}"]
-  provider varchar(40) [not null, default: "DEMO"]
-  provider_reference varchar(120)
-  status NotificationStatus [not null, default: "PENDING"]
-  attempts smallint [not null, default: 0]
-  last_error text
-  sent_at timestamptz
-  created_at timestamptz [not null]
-}
-
-Table audit_logs [headercolor: #64748B] {
-  id uuid [pk]
-  store_id uuid [not null, ref: > stores.id]
-  actor_id bigint [ref: > auth_users.id]
-  action varchar(100) [not null]
-  resource_type varchar(80) [not null]
-  resource_id varchar(80)
-  before jsonb [not null, default: "{}"]
-  after jsonb [not null, default: "{}"]
-  request_id varchar(80)
-  ip_hash varchar(64)
-  created_at timestamptz [not null]
-
-  indexes {
-    (store_id, created_at) [name: "idx_audit_store_created"]
-  }
-}
-
-Table privacy_retention_policies [headercolor: #64748B] {
-  id bigint [pk, increment]
-  store_id uuid [not null, unique, ref: - stores.id]
-  phone_retention_days integer [not null, default: 30]
-  verification_retention_days integer [not null, default: 7]
-  audit_retention_days integer [not null, default: 365]
-  notice_text text [not null]
-  updated_at timestamptz [not null]
-}
-
-Table outbox_events [headercolor: #64748B] {
-  id uuid [pk]
-  store_id uuid [not null, ref: > stores.id]
-  type varchar(100) [not null]
-  aggregate_type varchar(80) [not null]
-  aggregate_id varchar(80) [not null]
-  payload jsonb [not null, default: "{}"]
-  occurred_at timestamptz [not null]
-  published_at timestamptz
-
-  indexes {
-    (store_id, occurred_at) [name: "idx_event_store_occurred"]
-    (published_at, occurred_at) [name: "idx_unpublished_event"]
-  }
-
-  Note: "트랜잭션 이벤트 원본. SSE와 비동기 후속 작업에 사용한다."
-}
-
-TableGroup IdentityAndStore [color: #2563EB] {
-  auth_users
-  user_identities
-  stores
-  store_memberships
-  verification_challenges
-  demo_messages
-  refresh_token_sessions
-}
-
-TableGroup CatalogAndOrder [color: #F59E0B] {
-  product_categories
-  products
-  orders
-  order_items
-  idempotency_records
-  order_claims
-}
-
-TableGroup Rewards [color: #8B5CF6] {
-  daily_spend_balances
-  reward_tiers
-  reward_tier_benefits
-  reward_grants
-  coupons
-  immediate_benefit_redemptions
-}
-
-TableGroup WiFi [color: #06B6D4] {
-  wifi_policies
-  wifi_amount_tiers
-  wifi_passes
-  pass_extensions
-  scheduled_actions
-}
-
-TableGroup AIOperations [color: #EC4899] {
-  ai_recommendations
-  promotions
-  analytics_hourly
-}
-
-TableGroup Inventory [color: #22C55E] {
-  inventory_items
-  inventory_events
-}
-
-TableGroup Operations [color: #64748B] {
-  notifications
-  demo_messages
-  audit_logs
-  privacy_retention_policies
-  outbox_events
+  username varchar(120) [not null, unique]
+  password_hash varchar(256) [not null]
 }
