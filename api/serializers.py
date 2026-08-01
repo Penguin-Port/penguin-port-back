@@ -158,6 +158,13 @@ class ManualPassActionSerializer(serializers.Serializer):
         return attrs
 
 
+class PassExtendSerializer(serializers.Serializer):
+    """PDF MVP의 전용 수동 연장 API 입력."""
+
+    storeId = serializers.UUIDField(source="store_id")
+    minutes = serializers.IntegerField(min_value=1)
+
+
 class RecommendationEditSerializer(serializers.Serializer):
     storeId = serializers.UUIDField(source="store_id")
     version = serializers.IntegerField(min_value=1)

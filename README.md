@@ -53,6 +53,8 @@
 - 재고 등록·조정, 음수 재고 차단, 유통기한 위험 탐지
 - 시간대 매출 집계와 타임세일·재고·신메뉴 추천
 - 저장된 AI 추천 승인 후 프로모션 생성
+- PDF 축소 MVP 경로(`/public/otp/*`, `/admin/passes/*`) 호환 제공
+- `seed_mvp` 명령으로 데모 매장·메뉴·5천/1만원 리워드·AI 카드 1건 생성
 - 매장별 OWNER/MANAGER/STAFF/VIEWER 권한 관리
 - 공개 UUID 기반 관리자 사용자 식별
 - 감사 로그, 알림 이력, 개인정보 보존 정책, Outbox Event, SSE
@@ -76,6 +78,7 @@ flowchart LR
 ```text
 penguin-port-back/
 ├─ api/          # Serializer, API View, URL, 통합 테스트
+│  └─ management/commands/seed_mvp.py # PDF MVP 데모 시드
 ├─ stores/       # 매장과 팀 권한
 ├─ catalog/      # 메뉴와 카테고리
 ├─ orders/       # 주문, Claim, Idempotency
@@ -118,7 +121,24 @@ python3 -m pip install -r requirements.txt
 python3 manage.py migrate
 ```
 
-### 3. 관리자 계정 생성
+### 3. PDF MVP 데모 데이터(선택)
+
+매장·아메리카노·Wi-Fi 정책·5천/1만원 리워드·PENDING AI 추천 카드와 점주 계정을 한 번에
+생성합니다. 같은 명령을 다시 실행해도 중복 생성하지 않습니다.
+
+```bash
+python3 manage.py seed_mvp
+# 기본 계정: demo-owner / demo-password
+```
+
+매장명과 계정은 옵션으로 바꿀 수 있습니다.
+
+```bash
+python3 manage.py seed_mvp --store-name "테스트 카페" \
+  --username owner --password 'change-me'
+```
+
+### 4. 관리자 계정 생성
 
 ```bash
 python3 manage.py createsuperuser
@@ -127,7 +147,7 @@ python3 manage.py createsuperuser
 생성 후 Django Admin(`http://127.0.0.1:8000/admin/`)에서 매장, 상품, 정책,
 리워드 티어 등 시연 데이터를 등록할 수 있습니다.
 
-### 4. 서버 실행
+### 5. 서버 실행
 
 ```bash
 python3 manage.py runserver
@@ -144,6 +164,7 @@ python3 manage.py runserver
 | `python3 manage.py migrate` | 데이터베이스 마이그레이션 적용 |
 | `python3 manage.py createsuperuser` | Django 관리자 계정 생성 |
 | `python3 manage.py runserver` | 로컬 개발 서버 실행 |
+| `python3 manage.py seed_mvp` | PDF 축소 MVP 시연 데이터와 PENDING AI 카드 생성 |
 | `python3 manage.py test` | 전체 자동 테스트 실행 |
 | `python3 manage.py test --verbosity 2` | 테스트 이름과 상세 결과 출력 |
 | `python3 manage.py check` | Django 설정·모델 시스템 검사 |
@@ -225,7 +246,8 @@ http://127.0.0.1:8000/api/v1
 
 ## API 목록
 
-현재 OpenAPI 명세에는 **47개 경로, 54개 Operation**이 정의되어 있습니다.
+현재 OpenAPI 명세에는 **55개 경로, 62개 Operation**이 정의되어 있습니다.
+기존 확장 API를 유지하면서 PDF 축소 MVP에 적힌 짧은 경로도 함께 제공합니다.
 
 ### POS
 
@@ -241,6 +263,8 @@ http://127.0.0.1:8000/api/v1
 | `POST` | `/public/order-claims/exchange` | QR 주문 Claim 교환 |
 | `POST` | `/public/verifications/start` | OTP 인증 시작 |
 | `POST` | `/public/verifications/confirm` | OTP 확인 및 Portal Session 발급 |
+| `POST` | `/public/otp/send` | PDF MVP OTP 발송 경로 |
+| `POST` | `/public/otp/confirm` | PDF MVP OTP 확인 경로 |
 | `GET` | `/public/stores/{storeId}/privacy-notice` | 개인정보 처리 안내 조회 |
 
 ### 고객 Wi-Fi
@@ -250,6 +274,7 @@ http://127.0.0.1:8000/api/v1
 | `GET` | `/public/passes/{passId}` | Wi-Fi 상태, 만료 시각, 누적 현황 조회 |
 | `POST` | `/public/passes/{passId}/activate` | Wi-Fi 이용권 활성화 |
 | `GET` | `/public/kiosk/upsell-hint` | 다음 리워드 티어까지 필요한 금액 조회 |
+| `GET` | `/public/upsell-hint` | PDF MVP 업셀 경로 |
 
 ### 고객 리워드와 쿠폰
 
@@ -257,6 +282,7 @@ http://127.0.0.1:8000/api/v1
 |---|---|---|
 | `GET` | `/public/rewards/grants/{grantId}/options` | 선택 가능한 리워드 혜택 조회 |
 | `POST` | `/public/rewards/grants/{grantId}/choose` | 즉시 혜택 또는 7일 쿠폰 선택 |
+| `POST` | `/public/rewards/{grantId}/choose` | PDF MVP 리워드 선택 경로 |
 | `GET` | `/public/coupons` | 고객 쿠폰함 조회 |
 | `POST` | `/public/coupons/{couponId}/redeem` | 쿠폰 사용 |
 
@@ -265,6 +291,7 @@ http://127.0.0.1:8000/api/v1
 | Method | Endpoint | 설명 |
 |---|---|---|
 | `POST` | `/admin/auth/login` | 로그인 및 Access Token 발급 |
+| `POST` | `/admin/login` | PDF MVP 점주 로그인 경로 |
 | `POST` | `/admin/auth/refresh` | Refresh Token 회전 |
 | `POST` | `/admin/auth/logout` | 로그아웃 및 Refresh Token 폐기 |
 | `GET` | `/admin/auth/me` | 현재 관리자와 매장 권한 조회 |
@@ -289,6 +316,9 @@ http://127.0.0.1:8000/api/v1
 | `GET` | `/admin/wifi/live-passes` | 활성·임박 이용권 목록 |
 | `GET` | `/admin/wifi/passes/{passId}/extensions` | 이용권 연장 이력 |
 | `POST` | `/admin/wifi/passes/{passId}/actions` | 수동 연장·차단·해제 |
+| `GET` | `/admin/passes/active` | PDF MVP 실시간 이용권 목록(폴링) |
+| `POST` | `/admin/passes/{passId}/extend` | PDF MVP 수동 연장 |
+| `POST` | `/admin/passes/{passId}/expire` | PDF MVP 즉시 종료 및 Demo revoke |
 
 ### 관리자 리워드
 
@@ -432,7 +462,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/public/verifications/confirm \
 python3 manage.py test
 ```
 
-현재 테스트 스위트는 24개 테스트로 다음 핵심 흐름을 검증합니다.
+현재 테스트 스위트는 30개 테스트로 다음 핵심 흐름을 검증합니다.
 
 - 주문 생성, 추가 주문 연장, Idempotency
 - QR Claim, OTP, Portal Session, Wi-Fi 활성화
@@ -444,6 +474,7 @@ python3 manage.py test
 - 저장된 AI 추천 승인과 프로모션 생성
 - Wi-Fi 정책 계산과 오래된 만료 작업 방지
 - 모든 Django API 경로와 OpenAPI 경로의 일치
+- PDF MVP 별칭 경로, 직접 만료 스캔, `seed_mvp` 시드 결과
 
 테스트 이름까지 확인하려면 다음 명령을 사용합니다.
 

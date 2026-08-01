@@ -398,6 +398,7 @@ Table wifi_passes [headercolor: #06B6D4] {
   activated_at timestamptz
   expires_at timestamptz [not null]
   policy_version integer [not null]
+  policy_snapshot json [not null, note: "발급·연장 시 적용된 정책 스냅샷"]
   pass_version integer [not null, default: 1]
   network_reference varchar(200)
 
@@ -502,6 +503,18 @@ Table verification_challenges [headercolor: #2563EB] {
   created_at timestamptz [not null]
 
   Note: "OTP 원문은 저장하지 않으며 최대 시도 횟수와 만료 시각을 검사한다."
+}
+
+Table demo_messages [headercolor: #2563EB] {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  channel varchar(20) [not null, default: "SMS"]
+  destination_last4 varchar(4)
+  body text [not null]
+  payload jsonb [not null, default: "{}"]
+  created_at timestamptz [not null]
+
+  Note: "외부 SMS 없이 OTP와 데모 알림을 확인하는 Demo Inbox."
 }
 
 Table refresh_token_sessions [headercolor: #2563EB] {
@@ -610,6 +623,7 @@ TableGroup IdentityAndStore [color: #2563EB] {
   stores
   store_memberships
   verification_challenges
+  demo_messages
   refresh_token_sessions
 }
 
@@ -652,6 +666,7 @@ TableGroup Inventory [color: #22C55E] {
 
 TableGroup Operations [color: #64748B] {
   notifications
+  demo_messages
   audit_logs
   privacy_retention_policies
   outbox_events

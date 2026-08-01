@@ -9,6 +9,7 @@ from unittest import mock
 from uuid import UUID
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 from django.urls import URLPattern
@@ -19,7 +20,7 @@ from ai_ops.models import AIRecommendation, Promotion
 from catalog.models import Product, ProductCategory
 from identity.models import get_user_public_id
 from inventory.models import InventoryItem
-from operations.models import AuditLog
+from operations.models import AuditLog, DemoMessage
 from rewards.models import (
     Coupon,
     DailySpendBalance,
@@ -31,7 +32,7 @@ from rewards.models import (
 from rewards.services import apply_immediate_redemption, choose_benefit
 from stores.models import Store, StoreMembership
 from wifi.models import ScheduledAction, WiFiAmountTier, WiFiPass, WiFiPolicy
-from wifi.workers import execute_scheduled_action
+from wifi.workers import execute_scheduled_action, expire_due_passes
 
 
 class PurchaseRewardWifiFlowTests(TestCase):
@@ -113,6 +114,7 @@ class PurchaseRewardWifiFlowTests(TestCase):
         self.assertEqual(DailySpendBalance.objects.get().total_amount, 5000)
         self.assertEqual(RewardGrant.objects.count(), 1)
         self.assertEqual(WiFiPass.objects.count(), 1)
+        self.assertEqual(WiFiPass.objects.get().policy_snapshot["baseMinutes"], 120)
 
     def test_second_order_extends_pass_without_duplicate_tier(self):
         first = self.create_order("ORDER-1").json()["data"]
@@ -147,6 +149,7 @@ class PurchaseRewardWifiFlowTests(TestCase):
             format="json",
         )
         self.assertEqual(start.status_code, 201)
+        self.assertEqual(DemoMessage.objects.count(), 1)
         confirm = self.client.post(
             "/api/v1/public/verifications/confirm",
             {
@@ -191,6 +194,46 @@ class PurchaseRewardWifiFlowTests(TestCase):
         self.assertEqual(redeem.status_code, 200)
         self.assertEqual(redeem.json()["data"]["status"], Coupon.Status.REDEEMED)
 
+    def test_pdf_mvp_public_aliases_complete_customer_flow(self):
+        order_data = self.create_order("PDF-ORDER").json()["data"]
+        exchange = self.client.post(
+            "/api/v1/public/order-claims/exchange",
+            {"orderClaim": order_data["orderClaim"]["token"]},
+            format="json",
+        )
+        ticket = exchange.json()["data"]["verificationTicket"]
+        start = self.client.post(
+            "/api/v1/public/otp/send",
+            {"verificationTicket": ticket, "phone": "010-1234-5678"},
+            format="json",
+        )
+        self.assertEqual(start.status_code, 201)
+        confirm = self.client.post(
+            "/api/v1/public/otp/confirm",
+            {
+                "challengeId": start.json()["data"]["challengeId"],
+                "code": start.json()["data"]["demoCode"],
+            },
+            format="json",
+        )
+        self.assertEqual(confirm.status_code, 200)
+        portal_session = confirm.json()["data"]["portalSession"]
+        upsell = self.client.get(
+            "/api/v1/public/upsell-hint",
+            HTTP_X_PORTAL_SESSION=portal_session,
+        )
+        self.assertEqual(upsell.status_code, 200)
+        choose = self.client.post(
+            f"/api/v1/public/rewards/{order_data['newRewardGrantIds'][0]}/choose",
+            {
+                "benefitId": str(self.benefit.id),
+                "fulfillMode": RewardGrant.FulfillMode.COUPON_7D,
+            },
+            format="json",
+            HTTP_X_PORTAL_SESSION=portal_session,
+        )
+        self.assertEqual(choose.status_code, 200)
+
     def test_duplicate_external_order_is_rejected(self):
         self.assertEqual(self.create_order("ORDER-1").status_code, 201)
         duplicate = self.create_order("ORDER-1", idempotency_key="different-key")
@@ -215,6 +258,19 @@ class PurchaseRewardWifiFlowTests(TestCase):
         wifi_pass.refresh_from_db()
         self.assertEqual(result, "STALE_VERSION_SKIPPED")
         self.assertNotEqual(wifi_pass.status, WiFiPass.Status.EXPIRED)
+
+    def test_expire_loop_scans_active_passes(self):
+        order_data = self.create_order("EXPIRE-LOOP").json()["data"]
+        wifi_pass = WiFiPass.objects.get(id=order_data["wifiPass"]["passId"])
+        wifi_pass.status = WiFiPass.Status.ACTIVE
+        wifi_pass.expires_at = timezone.now() - timedelta(minutes=1)
+        wifi_pass.network_reference = "demo:expire-loop"
+        wifi_pass.save(update_fields=["status", "expires_at", "network_reference"])
+
+        self.assertEqual(expire_due_passes(now=timezone.now()), 1)
+        wifi_pass.refresh_from_db()
+        self.assertEqual(wifi_pass.status, WiFiPass.Status.EXPIRED)
+        self.assertEqual(wifi_pass.network_reference, "")
 
     def test_immediate_benefit_can_be_applied_to_order_once(self):
         order_data = self.create_order("ORDER-1").json()["data"]
@@ -421,6 +477,57 @@ class AdminApiTests(PurchaseRewardWifiFlowTests):
         self.assertNotEqual(
             refresh.json()["data"]["accessToken"],
             access_token,
+        )
+
+    def test_pdf_admin_aliases_extend_and_expire_pass(self):
+        order_data = self.create_order("PDF-ADMIN").json()["data"]
+        pass_id = order_data["wifiPass"]["passId"]
+        before = WiFiPass.objects.get(id=pass_id).expires_at
+
+        active = self.client.get(
+            "/api/v1/admin/passes/active", {"storeId": str(self.store.id)}
+        )
+        self.assertEqual(active.status_code, 200)
+        extend = self.client.post(
+            f"/api/v1/admin/passes/{pass_id}/extend",
+            {"storeId": str(self.store.id), "minutes": 15},
+            format="json",
+        )
+        self.assertEqual(extend.status_code, 200)
+        self.assertGreater(
+            WiFiPass.objects.get(id=pass_id).expires_at,
+            before,
+        )
+        expire = self.client.post(
+            f"/api/v1/admin/passes/{pass_id}/expire",
+            {"storeId": str(self.store.id)},
+            format="json",
+        )
+        self.assertEqual(expire.status_code, 200)
+        self.assertEqual(
+            WiFiPass.objects.get(id=pass_id).status,
+            WiFiPass.Status.EXPIRED,
+        )
+
+
+class MvpSeedCommandTests(TestCase):
+    def test_seed_mvp_creates_two_reward_tiers_and_one_pending_card(self):
+        call_command(
+            "seed_mvp",
+            store_name="시드 테스트 매장",
+            username="seed-owner",
+            password="seed-password",
+        )
+        store = Store.objects.get(name="시드 테스트 매장")
+        self.assertEqual(
+            set(RewardTier.objects.filter(store=store).values_list("threshold_amount", flat=True)),
+            {5000, 10000},
+        )
+        recommendation = AIRecommendation.objects.get(store=store)
+        self.assertEqual(recommendation.status, AIRecommendation.Status.PENDING)
+        self.assertEqual(
+            recommendation.payload["title"],
+            "오후 2~4시 아메리카노 15% 할인 추천",
         )
 
 

@@ -184,12 +184,12 @@ paths:
             schema:
               $ref: '#/components/schemas/VerificationStartRequest'
       security: []
-  /public/verifications/confirm:
+  /public/otp/send:
     post:
       tags:
       - Public
-      summary: OTP 인증 확인
-      operationId: postPublicVerificationsConfirm
+      summary: OTP 인증 시작(PDF MVP 경로)
+      operationId: postPublicOtpSend
       responses:
         '200': &id005
           description: 성공
@@ -210,6 +210,72 @@ paths:
         '422':
           $ref: '#/components/responses/RuleViolation'
         '201': *id005
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationStartRequest'
+      security: []
+  /public/verifications/confirm:
+    post:
+      tags:
+      - Public
+      summary: OTP 인증 확인
+      operationId: postPublicVerificationsConfirm
+      responses:
+        '200': &id006
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id006
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerificationConfirmRequest'
+      security: []
+  /public/otp/confirm:
+    post:
+      tags:
+      - Public
+      summary: OTP 인증 확인(PDF MVP 경로)
+      operationId: postPublicOtpConfirm
+      responses:
+        '200': &id007
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id007
       requestBody:
         required: true
         content:
@@ -258,7 +324,7 @@ paths:
       summary: Wi-Fi 이용권 활성화
       operationId: postPublicPassesPassidActivate
       responses:
-        '200': &id006
+        '200': &id008
           description: 성공
           content:
             application/json:
@@ -276,7 +342,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id006
+        '201': *id008
       parameters:
       - name: passId
         in: path
@@ -292,6 +358,33 @@ paths:
       - Public
       summary: 다음 리워드 업셀 정보
       operationId: getPublicKioskUpsell-Hint
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - portalSession: []
+  /public/upsell-hint:
+    get:
+      tags:
+      - Public
+      summary: 다음 리워드 업셀 정보(PDF MVP 경로)
+      operationId: getPublicUpsell-Hint
       responses:
         '200':
           description: 성공
@@ -354,7 +447,7 @@ paths:
       summary: 리워드 혜택 선택
       operationId: postPublicRewardsGrantsGrantidChoose
       responses:
-        '200': &id007
+        '200': &id009
           description: 성공
           content:
             application/json:
@@ -372,7 +465,48 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id007
+        '201': *id009
+      parameters:
+      - name: grantId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardChooseRequest'
+      security:
+      - portalSession: []
+  /public/rewards/{grantId}/choose:
+    post:
+      tags:
+      - Rewards
+      summary: 리워드 혜택 선택(PDF MVP 경로)
+      operationId: postPublicRewardsGrantidChoose
+      responses:
+        '200': &id010
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id010
       parameters:
       - name: grantId
         in: path
@@ -422,7 +556,7 @@ paths:
       summary: 쿠폰 사용
       operationId: postPublicCouponsCouponidRedeem
       responses:
-        '200': &id008
+        '200': &id011
           description: 성공
           content:
             application/json:
@@ -440,7 +574,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id008
+        '201': *id011
       parameters:
       - name: couponId
         in: path
@@ -490,7 +624,7 @@ paths:
       summary: 관리자 로그인
       operationId: postAdminAuthLogin
       responses:
-        '200': &id009
+        '200': &id012
           description: 성공
           content:
             application/json:
@@ -508,7 +642,40 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id009
+        '201': *id012
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      security: []
+  /admin/login:
+    post:
+      tags:
+      - Admin Auth
+      summary: 관리자 로그인(PDF MVP 경로)
+      operationId: postAdminLogin
+      responses:
+        '200': &id013
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id013
       requestBody:
         required: true
         content:
@@ -523,7 +690,7 @@ paths:
       summary: 관리자 Refresh Token 회전
       operationId: postAdminAuthRefresh
       responses:
-        '200': &id010
+        '200': &id014
           description: 성공
           content:
             application/json:
@@ -541,7 +708,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id010
+        '201': *id014
       security:
       - refreshCookie: []
   /admin/auth/logout:
@@ -551,7 +718,7 @@ paths:
       summary: 관리자 로그아웃
       operationId: postAdminAuthLogout
       responses:
-        '200': &id011
+        '200': &id015
           description: 성공
           content:
             application/json:
@@ -569,7 +736,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id011
+        '201': *id015
       security:
       - bearerAuth: []
       - sessionAuth: []
@@ -605,7 +772,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: &id012
+        schema: &id016
           type: string
           format: uuid
   /admin/orders:
@@ -640,7 +807,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
   /admin/orders/{orderId}/refund:
     post:
       tags:
@@ -648,7 +815,7 @@ paths:
       summary: 주문 환불
       operationId: postAdminOrdersOrderidRefund
       responses:
-        '200': &id013
+        '200': &id017
           description: 성공
           content:
             application/json:
@@ -666,7 +833,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id013
+        '201': *id017
       parameters:
       - name: orderId
         in: path
@@ -715,14 +882,14 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
     post:
       tags:
       - Admin Catalog
       summary: 메뉴 생성
       operationId: postAdminCatalogProducts
       responses:
-        '200': &id014
+        '200': &id018
           description: 성공
           content:
             application/json:
@@ -740,7 +907,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id014
+        '201': *id018
       requestBody:
         required: true
         content:
@@ -782,14 +949,14 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
     post:
       tags:
       - Admin WiFi
       summary: Wi-Fi 정책 버전 생성
       operationId: postAdminWifiPolicies
       responses:
-        '200': &id015
+        '200': &id019
           description: 성공
           content:
             application/json:
@@ -807,7 +974,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id015
+        '201': *id019
       requestBody:
         required: true
         content:
@@ -824,7 +991,7 @@ paths:
       summary: Wi-Fi 정책 계산 미리보기
       operationId: postAdminWifiPoliciesSimulate
       responses:
-        '200': &id016
+        '200': &id020
           description: 성공
           content:
             application/json:
@@ -842,7 +1009,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id016
+        '201': *id020
       requestBody:
         required: true
         content:
@@ -859,7 +1026,7 @@ paths:
       summary: Wi-Fi 정책 게시
       operationId: postAdminWifiPoliciesPolicyidPublish
       responses:
-        '200': &id017
+        '200': &id021
           description: 성공
           content:
             application/json:
@@ -877,7 +1044,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id017
+        '201': *id021
       parameters:
       - name: policyId
         in: path
@@ -919,7 +1086,40 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
+  /admin/passes/active:
+    get:
+      tags:
+      - Admin WiFi
+      summary: 실시간 이용권 목록(PDF MVP 경로)
+      operationId: getAdminPassesActive
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+      parameters:
+      - name: storeId
+        in: query
+        required: true
+        schema: *id016
   /admin/wifi/passes/{passId}/extensions:
     get:
       tags:
@@ -962,7 +1162,7 @@ paths:
       summary: 이용권 연장·차단·해제
       operationId: postAdminWifiPassesPassidActions
       responses:
-        '200': &id018
+        '200': &id022
           description: 성공
           content:
             application/json:
@@ -980,7 +1180,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id018
+        '201': *id022
       parameters:
       - name: passId
         in: path
@@ -994,6 +1194,84 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ManualPassActionRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/passes/{passId}/extend:
+    post:
+      tags:
+      - Admin WiFi
+      summary: 이용권 수동 연장(PDF MVP 경로)
+      operationId: postAdminPassesPassidExtend
+      responses:
+        '200': &id023
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id023
+      parameters:
+      - name: passId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PassExtendRequest'
+      security:
+      - bearerAuth: []
+      - sessionAuth: []
+  /admin/passes/{passId}/expire:
+    post:
+      tags:
+      - Admin WiFi
+      summary: 이용권 즉시 종료(PDF MVP 경로)
+      operationId: postAdminPassesPassidExpire
+      responses:
+        '200': &id024
+          description: 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/RuleViolation'
+        '201': *id024
+      parameters:
+      - name: passId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
       security:
       - bearerAuth: []
       - sessionAuth: []
@@ -1029,14 +1307,14 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
     post:
       tags:
       - Admin Rewards
       summary: 리워드 티어 생성
       operationId: postAdminRewardsTiers
       responses:
-        '200': &id019
+        '200': &id025
           description: 성공
           content:
             application/json:
@@ -1054,7 +1332,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id019
+        '201': *id025
       requestBody:
         required: true
         content:
@@ -1096,7 +1374,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
   /admin/inventory:
     get:
       tags:
@@ -1129,14 +1407,14 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
     post:
       tags:
       - Admin Inventory
       summary: 재고 품목 생성
       operationId: postAdminInventory
       responses:
-        '200': &id020
+        '200': &id026
           description: 성공
           content:
             application/json:
@@ -1154,7 +1432,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id020
+        '201': *id026
       requestBody:
         required: true
         content:
@@ -1171,7 +1449,7 @@ paths:
       summary: 재고 수량 조정
       operationId: postAdminInventoryItemidAdjust
       responses:
-        '200': &id021
+        '200': &id027
           description: 성공
           content:
             application/json:
@@ -1189,7 +1467,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id021
+        '201': *id027
       parameters:
       - name: itemId
         in: path
@@ -1213,7 +1491,7 @@ paths:
       summary: 재고 위험 스캔
       operationId: postAdminInventoryScan
       responses:
-        '200': &id022
+        '200': &id028
           description: 성공
           content:
             application/json:
@@ -1231,7 +1509,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id022
+        '201': *id028
       requestBody:
         required: true
         content:
@@ -1273,7 +1551,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
   /admin/ai/recommendations/generate:
     post:
       tags:
@@ -1281,7 +1559,7 @@ paths:
       summary: AI 추천 생성
       operationId: postAdminAiRecommendationsGenerate
       responses:
-        '200': &id023
+        '200': &id029
           description: 성공
           content:
             application/json:
@@ -1299,7 +1577,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id023
+        '201': *id029
       requestBody:
         required: true
         content:
@@ -1357,7 +1635,7 @@ paths:
       summary: AI 추천 승인 및 프로모션 생성
       operationId: postAdminAiRecommendationsRecommendationidAccept
       responses:
-        '200': &id024
+        '200': &id030
           description: 성공
           content:
             application/json:
@@ -1375,7 +1653,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id024
+        '201': *id030
       parameters:
       - name: recommendationId
         in: path
@@ -1399,7 +1677,7 @@ paths:
       summary: AI 추천 거절
       operationId: postAdminAiRecommendationsRecommendationidReject
       responses:
-        '200': &id025
+        '200': &id031
           description: 성공
           content:
             application/json:
@@ -1417,7 +1695,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id025
+        '201': *id031
       parameters:
       - name: recommendationId
         in: path
@@ -1466,7 +1744,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
   /admin/promotions/{promotionId}:
     patch:
       tags:
@@ -1540,7 +1818,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
   /admin/audit:
     get:
       tags:
@@ -1573,7 +1851,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
   /admin/notifications:
     get:
       tags:
@@ -1606,7 +1884,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
   /admin/anomalies:
     get:
       tags:
@@ -1639,7 +1917,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
   /admin/team:
     get:
       tags:
@@ -1672,14 +1950,14 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
     post:
       tags:
       - Admin Team
       summary: 매장 팀원 역할 등록·수정
       operationId: postAdminTeam
       responses:
-        '200': &id026
+        '200': &id032
           description: 성공
           content:
             application/json:
@@ -1697,7 +1975,7 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/RuleViolation'
-        '201': *id026
+        '201': *id032
       requestBody:
         required: true
         content:
@@ -1739,7 +2017,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
     patch:
       tags:
       - Admin Privacy
@@ -1805,7 +2083,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
   /admin/settings:
     get:
       tags:
@@ -1838,7 +2116,7 @@ paths:
       - name: storeId
         in: query
         required: true
-        schema: *id012
+        schema: *id016
     patch:
       tags:
       - Admin Settings
@@ -1939,7 +2217,7 @@ components:
           properties:
             requestId:
               type: string
-            serverTime: &id027
+            serverTime: &id033
               type: string
               format: date-time
           required:
@@ -1977,7 +2255,7 @@ components:
     PaidOrderRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         externalOrderId:
           type: string
         customer:
@@ -1998,7 +2276,7 @@ components:
           items:
             type: object
             properties:
-              productId: *id012
+              productId: *id016
               quantity:
                 type: integer
                 minimum: 1
@@ -2011,7 +2289,7 @@ components:
         totalAmount:
           type: integer
           minimum: 0
-        paidAt: *id027
+        paidAt: *id033
       required:
       - storeId
       - externalOrderId
@@ -2029,8 +2307,8 @@ components:
     ImmediateBenefitApplyRequest:
       type: object
       properties:
-        storeId: *id012
-        orderId: *id012
+        storeId: *id016
+        orderId: *id016
       required:
       - storeId
       - orderId
@@ -2047,7 +2325,7 @@ components:
     VerificationConfirmRequest:
       type: object
       properties:
-        challengeId: *id012
+        challengeId: *id016
         code:
           type: string
           pattern: ^\d{6}$
@@ -2057,7 +2335,7 @@ components:
     RewardChooseRequest:
       type: object
       properties:
-        benefitId: *id012
+        benefitId: *id016
         fulfillMode:
           enum:
           - IMMEDIATE
@@ -2078,13 +2356,13 @@ components:
     StoreRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
       required:
       - storeId
     RefundRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         refundAmount:
           type: integer
           minimum: 1
@@ -2094,8 +2372,8 @@ components:
     ProductCreateRequest:
       type: object
       properties:
-        storeId: *id012
-        categoryId: *id012
+        storeId: *id016
+        categoryId: *id016
         name:
           type: string
         price:
@@ -2109,7 +2387,7 @@ components:
     WiFiPolicyRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         baseMinutes:
           type: integer
           minimum: 1
@@ -2146,7 +2424,7 @@ components:
     WiFiSimulateRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         orderType:
           enum:
           - FIRST
@@ -2161,7 +2439,7 @@ components:
     ManualPassActionRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         action:
           enum:
           - EXTEND
@@ -2173,10 +2451,20 @@ components:
       required:
       - storeId
       - action
+    PassExtendRequest:
+      type: object
+      properties:
+        storeId: *id016
+        minutes:
+          type: integer
+          minimum: 1
+      required:
+      - storeId
+      - minutes
     RewardTierRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         name:
           type: string
         thresholdAmount:
@@ -2208,8 +2496,8 @@ components:
     InventoryCreateRequest:
       type: object
       properties:
-        storeId: *id012
-        productId: *id012
+        storeId: *id016
+        productId: *id016
         quantity:
           type: number
           minimum: 0
@@ -2239,7 +2527,7 @@ components:
     RecommendationGenerateRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         type:
           enum:
           - SALES_SUMMARY
@@ -2252,7 +2540,7 @@ components:
     RecommendationEditRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         version:
           type: integer
           minimum: 1
@@ -2267,7 +2555,7 @@ components:
     RecommendationAcceptRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         version:
           type: integer
           minimum: 1
@@ -2277,7 +2565,7 @@ components:
     RecommendationRejectRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         reason:
           type: string
       required:
@@ -2285,13 +2573,13 @@ components:
     PromotionUpdateRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         title:
           type: string
         payload:
           type: object
-        startsAt: *id027
-        endsAt: *id027
+        startsAt: *id033
+        endsAt: *id033
         status:
           enum:
           - DRAFT
@@ -2303,8 +2591,8 @@ components:
     MembershipRequest:
       type: object
       properties:
-        storeId: *id012
-        userId: *id012
+        storeId: *id016
+        userId: *id016
         role:
           enum:
           - OWNER
@@ -2318,7 +2606,7 @@ components:
     PrivacyRetentionRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         phoneRetentionDays:
           type: integer
           minimum: 1
@@ -2335,7 +2623,7 @@ components:
     StoreSettingsRequest:
       type: object
       properties:
-        storeId: *id012
+        storeId: *id016
         name:
           type: string
         timezone:
@@ -2354,22 +2642,22 @@ components:
   responses:
     BadRequest:
       description: 요청 형식 오류
-      content: &id028
+      content: &id034
         application/json:
           schema:
             $ref: '#/components/schemas/Problem'
     Unauthorized:
       description: 인증 실패
-      content: *id028
+      content: *id034
     Forbidden:
       description: 권한 부족
-      content: *id028
+      content: *id034
     NotFound:
       description: 리소스 없음
-      content: *id028
+      content: *id034
     Conflict:
       description: 상태 또는 버전 충돌
-      content: *id028
+      content: *id034
     RuleViolation:
       description: 도메인 규칙 위반
-      content: *id028
+      content: *id034

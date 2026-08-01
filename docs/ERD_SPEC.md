@@ -11,7 +11,7 @@
 
 | 색상 | 도메인 | 주요 테이블 |
 |---|---|---|
-| 파랑 | 사용자·매장 | `auth_users`, `stores`, `store_memberships` |
+| 파랑 | 사용자·매장·데모 인증 | `auth_users`, `stores`, `store_memberships`, `verification_challenges`, `demo_messages` |
 | 청록 | 메뉴 | `product_categories`, `products` |
 | 주황 | 주문 | `orders`, `order_items`, `order_claims` |
 | 보라 | 리워드 | `daily_spend_balances`, `reward_grants`, `coupons` |
@@ -31,7 +31,7 @@ Store
  ├─ WiFiPass ─ PassExtension ─ Order
  ├─ AIRecommendation ─ Promotion
  ├─ InventoryItem ─ InventoryEvent
- └─ OutboxEvent / AuditLog / Notification
+ └─ OutboxEvent / AuditLog / Notification / DemoMessage
 ```
 
 ## 무결성 규칙

@@ -8,11 +8,12 @@ from ai_ops.services import (
 from inventory.services import scan_inventory_risk
 from operations.services import purge_expired_privacy_data
 from stores.models import Store
-from wifi.workers import process_due_actions
+from wifi.workers import expire_due_passes, process_due_actions
 
 
 def run_minutely_jobs():
     return {
+        "expiredPasses": expire_due_passes(),
         "scheduledActions": process_due_actions(),
         "promotions": update_promotion_states(),
     }

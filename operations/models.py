@@ -32,6 +32,21 @@ class Notification(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 
+class DemoMessage(models.Model):
+    """외부 SMS 없이 PDF MVP의 Demo Inbox를 재현하는 메시지 보관함."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="demo_messages")
+    channel = models.CharField(max_length=20, default="SMS")
+    destination_last4 = models.CharField(max_length=4, blank=True)
+    body = models.TextField()
+    payload = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "demo_messages"
+
+
 class AuditLog(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name="audit_logs")

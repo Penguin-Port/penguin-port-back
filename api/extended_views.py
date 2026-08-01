@@ -26,6 +26,7 @@ from api.serializers import (
     LoginSerializer,
     ManualPassActionSerializer,
     MembershipUpsertSerializer,
+    PassExtendSerializer,
     PrivacyRetentionSerializer,
     ProductCreateSerializer,
     PromotionUpdateSerializer,
@@ -52,12 +53,13 @@ from identity.tokens import issue_token_pair, revoke_refresh_token, rotate_refre
 from inventory.models import InventoryItem
 from inventory.services import adjust_inventory, calculate_risk_score, scan_inventory_risk
 from operations.models import AuditLog, Notification, OutboxEvent
-from operations.services import get_or_create_retention_policy, write_audit
+from operations.services import emit_event, get_or_create_retention_policy, write_audit
 from orders.models import Order
 from orders.services import refund_order
 from rewards.models import Coupon, RewardTier, RewardTierBenefit
 from rewards.services import redeem_coupon
 from stores.models import Store, StoreMembership
+from wifi.adapters import get_network_adapter
 from wifi.models import PassExtension, WiFiAmountTier, WiFiPass, WiFiPolicy
 
 
@@ -749,6 +751,116 @@ class AdminPassActionView(APIView):
             before=before,
             after=pass_data(wifi_pass),
         )
+        return success(request, pass_data(wifi_pass))
+
+
+class AdminPassExtendView(APIView):
+    """PDF MVP의 POST /admin/passes/{id}/extend 호환 API."""
+
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, pass_id):
+        serializer = PassExtendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            wifi_pass = WiFiPass.objects.select_for_update().select_related("store").get(
+                id=pass_id, store_id=data["store_id"]
+            )
+        except WiFiPass.DoesNotExist:
+            return problem_response(
+                request=request,
+                detail="이용권을 찾을 수 없습니다.",
+                code="WIFI_PASS_NOT_FOUND",
+                status=404,
+            )
+        try:
+            require_store_access(request.user, wifi_pass.store_id, roles=OWNER_MANAGER)
+        except PermissionError as exc:
+            return _access_error(request, exc)
+
+        before = pass_data(wifi_pass)
+        wifi_pass.expires_at = max(wifi_pass.expires_at, timezone.now()) + timedelta(
+            minutes=data["minutes"]
+        )
+        wifi_pass.pass_version += 1
+        if wifi_pass.status == WiFiPass.Status.EXPIRED:
+            wifi_pass.status = WiFiPass.Status.ACTIVE
+        wifi_pass.save(update_fields=["expires_at", "pass_version", "status"])
+        write_audit(
+            store=wifi_pass.store,
+            actor=request.user,
+            action="WIFI_PASS_EXTEND",
+            resource_type="WiFiPass",
+            resource_id=wifi_pass.id,
+            before=before,
+            after=pass_data(wifi_pass),
+        )
+        return success(request, pass_data(wifi_pass))
+
+
+class AdminPassExpireView(APIView):
+    """PDF MVP의 POST /admin/passes/{id}/expire 호환 API."""
+
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, pass_id):
+        try:
+            wifi_pass = WiFiPass.objects.select_for_update().select_related("store").get(
+                id=pass_id
+            )
+        except WiFiPass.DoesNotExist:
+            return problem_response(
+                request=request,
+                detail="이용권을 찾을 수 없습니다.",
+                code="WIFI_PASS_NOT_FOUND",
+                status=404,
+            )
+
+        requested_store_id = request.data.get("storeId")
+        if requested_store_id and str(wifi_pass.store_id) != str(requested_store_id):
+            return problem_response(
+                request=request,
+                detail="요청 매장과 이용권 매장이 일치하지 않습니다.",
+                code="STORE_ACCESS_DENIED",
+                status=403,
+            )
+        try:
+            require_store_access(request.user, wifi_pass.store_id, roles=OWNER_MANAGER)
+        except PermissionError as exc:
+            return _access_error(request, exc)
+
+        before = pass_data(wifi_pass)
+        if wifi_pass.status not in [
+            WiFiPass.Status.EXPIRED,
+            WiFiPass.Status.CANCELLED,
+            WiFiPass.Status.BLOCKED,
+        ]:
+            get_network_adapter().revoke(reference=wifi_pass.network_reference or "")
+            wifi_pass.status = WiFiPass.Status.EXPIRED
+            wifi_pass.network_reference = ""
+            wifi_pass.pass_version += 1
+            wifi_pass.save(
+                update_fields=["status", "network_reference", "pass_version"]
+            )
+            emit_event(
+                store=wifi_pass.store,
+                type="wifi.pass.expired",
+                aggregate_type="WiFiPass",
+                aggregate_id=wifi_pass.id,
+                payload={"passId": str(wifi_pass.id), "source": "admin"},
+            )
+            write_audit(
+                store=wifi_pass.store,
+                actor=request.user,
+                action="WIFI_PASS_EXPIRE",
+                resource_type="WiFiPass",
+                resource_id=wifi_pass.id,
+                before=before,
+                after=pass_data(wifi_pass),
+            )
         return success(request, pass_data(wifi_pass))
 
 
