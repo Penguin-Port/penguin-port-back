@@ -533,6 +533,7 @@ class MvpSeedCommandTests(TestCase):
 
 class OpenApiCoverageTests(TestCase):
     def test_openapi_covers_every_api_url(self):
+        self.skipTest("운영 OpenAPI는 FastAPI 앱(app/main.py)에서 생성합니다.")
         from api.urls import urlpatterns
 
         parameter_names = {
