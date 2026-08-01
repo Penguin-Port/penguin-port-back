@@ -90,6 +90,16 @@ PENDING AI 카드가 중복 생성되지 않습니다.
 uvicorn app.main:app --reload
 ```
 
+로컬 SQLite 초기화, Alembic, 데모 시드, 서버 실행을 한 번에 하려면 다음 스크립트를 사용할 수
+있습니다. 기본적으로 `/private/tmp/smartpass-manual.sqlite3`를 매번 새로 만들며, 기존 데이터를
+유지하려면 `RESET_DB=0`을 지정합니다.
+
+```bash
+./scripts/run_local.sh
+# 기존 DB 유지
+RESET_DB=0 ./scripts/run_local.sh
+```
+
 - API: `http://127.0.0.1:8000`
 - Swagger: `http://127.0.0.1:8000/docs`
 - OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`
