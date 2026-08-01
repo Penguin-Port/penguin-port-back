@@ -60,6 +60,54 @@ def execute_scheduled_action(action_id, *, now=None):
     return "COMPLETED"
 
 
+@transaction.atomic
+def _expire_due_pass(pass_id, *, now):
+    """만료 루프에서 한 이용권을 잠그고 상태를 다시 확인한 뒤 종료한다."""
+
+    wifi_pass = (
+        WiFiPass.objects.select_for_update()
+        .select_related("store")
+        .get(id=pass_id)
+    )
+    if wifi_pass.status not in [WiFiPass.Status.ACTIVE, WiFiPass.Status.EXPIRING_SOON]:
+        return False
+    if wifi_pass.expires_at > now:
+        return False
+
+    get_network_adapter().revoke(reference=wifi_pass.network_reference or "")
+    wifi_pass.status = WiFiPass.Status.EXPIRED
+    wifi_pass.network_reference = ""
+    wifi_pass.pass_version += 1
+    wifi_pass.save(update_fields=["status", "network_reference", "pass_version"])
+    emit_event(
+        store=wifi_pass.store,
+        type="wifi.pass.expired",
+        aggregate_type="WiFiPass",
+        aggregate_id=wifi_pass.id,
+        payload={"passId": str(wifi_pass.id), "source": "expire_loop"},
+    )
+    return True
+
+
+def expire_due_passes(*, now=None, limit=500):
+    """PDF MVP의 60초 만료 루프가 호출할 직접 스캔 구현."""
+
+    now = now or timezone.now()
+    pass_ids = list(
+        WiFiPass.objects.filter(
+            status__in=[WiFiPass.Status.ACTIVE, WiFiPass.Status.EXPIRING_SOON],
+            expires_at__lte=now,
+        )
+        .order_by("expires_at")
+        .values_list("id", flat=True)[:limit]
+    )
+    expired = 0
+    for pass_id in pass_ids:
+        if _expire_due_pass(pass_id, now=now):
+            expired += 1
+    return expired
+
+
 def process_due_actions(*, now=None, limit=500):
     now = now or timezone.now()
     ids = list(

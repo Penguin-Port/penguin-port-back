@@ -3,7 +3,13 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from operations.models import AuditLog, Notification, OutboxEvent, PrivacyRetentionPolicy
+from operations.models import (
+    AuditLog,
+    DemoMessage,
+    Notification,
+    OutboxEvent,
+    PrivacyRetentionPolicy,
+)
 
 
 def emit_event(*, store, type: str, aggregate_type: str, aggregate_id, payload: dict):
@@ -45,6 +51,17 @@ def write_audit(
 def send_demo_notification(
     *, store, channel: str, template: str, destination_last4: str, payload: dict
 ):
+    demo_message = DemoMessage.objects.create(
+        store=store,
+        channel=channel,
+        destination_last4=destination_last4,
+        body=(
+            f"인증번호: {payload['demoCode']}"
+            if template == "OTP_CODE" and payload.get("demoCode")
+            else template
+        ),
+        payload=payload,
+    )
     notification = Notification.objects.create(
         store=store,
         channel=channel,
@@ -57,6 +74,9 @@ def send_demo_notification(
         provider_reference=f"demo-{timezone.now().timestamp()}",
         sent_at=timezone.now(),
     )
+    # Notification은 운영 이력이고 DemoMessage는 PDF MVP의 Demo Inbox다.
+    notification.payload = {**notification.payload, "demoMessageId": str(demo_message.id)}
+    notification.save(update_fields=["payload"])
     return notification
 
 

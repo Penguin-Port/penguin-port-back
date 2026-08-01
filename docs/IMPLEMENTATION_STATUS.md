@@ -5,6 +5,11 @@
 - `Smart_WiFi_Pass_Backend_Spec.pdf`
 - `Smart_WiFi_Pass_Frontend_Spec.pdf`
 
+축소판 MVP 명세의 시연 경로(`/public/otp/*`, `/public/upsell-hint`,
+`/public/rewards/{grantId}/choose`, `/admin/login`, `/admin/passes/*`)도
+기존 확장 API와 함께 제공한다. 기존 Django 구현을 유지하면서 PDF의 짧은 시연 흐름을
+그대로 호출할 수 있도록 호환 경로, 멱등 시드 명령, 직접 만료 스캔을 추가했다.
+
 상태 정의:
 
 - **완료**: Django 모델, 서비스 함수, API 또는 Worker가 연결되어 자동 테스트 가능
@@ -19,7 +24,8 @@
 | HMAC timestamp·nonce·body | 완료 | `PosHMACPermission` |
 | Idempotency-Key | 완료 | 요청 해시와 원 응답 저장·재사용 |
 | QR Order Claim | 완료 | 10분 만료, 1회 교환 |
-| 전화번호 OTP | Demo | 해시 저장, 3분 만료, 5회 제한, Demo SMS |
+| 전화번호 OTP | Demo | 해시 저장, 3분 만료, 5회 제한, `demo_messages` Inbox |
+| PDF OTP 경로 | 완료 | `/public/otp/send`, `/public/otp/confirm` 별칭 |
 | Portal Session | 완료 | 서명된 24시간 Session |
 | 부분·전체 환불 | 완료 | 누적 금액 롤백 및 미사용 혜택 회수 |
 
@@ -34,6 +40,7 @@
 | 즉시 혜택 | 완료 | Grant 즉시 확정, Wi-Fi 종일권 즉시 반영 |
 | 7일 쿠폰 | 완료 | 발급·목록·사용·만료 검사 |
 | 업셀 힌트 | 완료 | 다음 티어와 남은 금액 계산 |
+| PDF 업셀·리워드 경로 | 완료 | `/public/upsell-hint`, `/public/rewards/{grantId}/choose` |
 
 ## Wi-Fi
 
@@ -47,6 +54,8 @@
 | 상태 전이 | 완료 | 발급·활성·만료·차단·실패 |
 | 오만료 방지 | 완료 | `pass_version` 불일치 Worker 스킵 |
 | 만료·알림·접속해제 | 완료 | ScheduledAction + Celery Beat |
+| PDF 직접 만료 루프 | 완료 | 활성/임박 이용권 `expires_at` 직접 스캔 + Demo revoke |
+| 정책 스냅샷 | 완료 | 이용권 발급·연장 시 `policy_snapshot` 저장 |
 | 실제 네트워크 | Demo | `DemoNetworkAdapter` |
 | UniFi/RADIUS/MikroTik | 외부 연결 | `NetworkAdapter` 구현 교체 필요 |
 
@@ -68,6 +77,7 @@
 | 요구사항 | 상태 | 구현 |
 |---|---|---|
 | Admin 로그인·갱신·로그아웃 | 완료 | JWT Access + HttpOnly Refresh Rotation + Session 호환 |
+| PDF Admin 경로 | 완료 | `/admin/login`, `/admin/passes/active`, `/admin/passes/{id}/extend`, `/admin/passes/{id}/expire` |
 | OWNER/MANAGER/STAFF/VIEWER | 완료 | 매장 Membership RBAC |
 | Audit Log | 완료 | 환불·정책·설정·수동 이용권 작업 |
 | 개인정보 안내·보존 | 완료 | 매장별 보존 정책 |
@@ -88,3 +98,4 @@
 | `docs/schema.dbml` | dbdiagram.io ERD |
 | `scripts/generate_openapi.py` | OpenAPI 재생성 |
 | `api/tests.py` | 핵심 통합 흐름과 명세 누락 검사 |
+| `api/management/commands/seed_mvp.py` | PDF 축소 MVP 데모 매장·메뉴·정책·리워드·AI 카드 시드 |

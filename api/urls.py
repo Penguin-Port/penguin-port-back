@@ -26,7 +26,9 @@ from api.extended_views import (
     AdminOrderRefundView,
     AdminOrderListView,
     AdminPassActionView,
+    AdminPassExpireView,
     AdminPassExtensionListView,
+    AdminPassExtendView,
     AdminPrivacyRetentionView,
     AdminPrivacyExportView,
     AdminPromotionDetailView,
@@ -70,10 +72,21 @@ urlpatterns = [
         VerificationStartView.as_view(),
         name="verification-start",
     ),
+    # PDF MVP 명세의 경로. 기존 /public/verifications/* 경로도 하위 호환으로 유지한다.
+    path(
+        "public/otp/send",
+        VerificationStartView.as_view(),
+        name="pdf-otp-send",
+    ),
     path(
         "public/verifications/confirm",
         VerificationConfirmView.as_view(),
         name="verification-confirm",
+    ),
+    path(
+        "public/otp/confirm",
+        VerificationConfirmView.as_view(),
+        name="pdf-otp-confirm",
     ),
     path(
         "public/passes/<uuid:pass_id>",
@@ -91,6 +104,11 @@ urlpatterns = [
         name="upsell-hint",
     ),
     path(
+        "public/upsell-hint",
+        UpsellHintView.as_view(),
+        name="pdf-upsell-hint",
+    ),
+    path(
         "public/rewards/grants/<uuid:grant_id>/options",
         RewardOptionsView.as_view(),
         name="reward-options",
@@ -99,6 +117,11 @@ urlpatterns = [
         "public/rewards/grants/<uuid:grant_id>/choose",
         RewardChooseView.as_view(),
         name="reward-choose",
+    ),
+    path(
+        "public/rewards/<uuid:grant_id>/choose",
+        RewardChooseView.as_view(),
+        name="pdf-reward-choose",
     ),
     path("public/coupons", CouponListView.as_view(), name="coupon-list"),
     path(
@@ -112,6 +135,7 @@ urlpatterns = [
         name="privacy-notice",
     ),
     path("admin/auth/login", AdminLoginView.as_view(), name="admin-login"),
+    path("admin/login", AdminLoginView.as_view(), name="pdf-admin-login"),
     path("admin/auth/refresh", AdminRefreshView.as_view(), name="admin-refresh"),
     path("admin/auth/logout", AdminLogoutView.as_view(), name="admin-logout"),
     path("admin/auth/me", AdminMeView.as_view(), name="admin-me"),
@@ -143,6 +167,11 @@ urlpatterns = [
         name="admin-live-passes",
     ),
     path(
+        "admin/passes/active",
+        AdminLivePassListView.as_view(),
+        name="pdf-admin-live-passes",
+    ),
+    path(
         "admin/wifi/passes/<uuid:pass_id>/extensions",
         AdminPassExtensionListView.as_view(),
         name="admin-pass-extensions",
@@ -151,6 +180,16 @@ urlpatterns = [
         "admin/wifi/passes/<uuid:pass_id>/actions",
         AdminPassActionView.as_view(),
         name="admin-pass-actions",
+    ),
+    path(
+        "admin/passes/<uuid:pass_id>/extend",
+        AdminPassExtendView.as_view(),
+        name="pdf-admin-pass-extend",
+    ),
+    path(
+        "admin/passes/<uuid:pass_id>/expire",
+        AdminPassExpireView.as_view(),
+        name="pdf-admin-pass-expire",
     ),
     path(
         "admin/rewards/tiers",

@@ -38,6 +38,25 @@ def _tier_minutes(policy: WiFiPolicy, order_type: str, amount: int) -> int:
     return tier.bonus_minutes if tier else 0
 
 
+def _policy_snapshot(policy: WiFiPolicy) -> dict:
+    return {
+        "version": policy.version,
+        "baseMinutes": policy.base_minutes,
+        "quietHoursEnabled": policy.quiet_hours_enabled,
+        "quietHoursUntil": (
+            policy.quiet_hours_until.isoformat() if policy.quiet_hours_until else None
+        ),
+        "amountTiers": [
+            {
+                "orderType": tier.order_type,
+                "minAmount": tier.min_amount,
+                "bonusMinutes": tier.bonus_minutes,
+            }
+            for tier in policy.amount_tiers.all()
+        ],
+    }
+
+
 @transaction.atomic
 def issue_or_extend_pass(order: Order) -> WiFiResult:
     policy = _published_policy(order)
@@ -75,6 +94,7 @@ def issue_or_extend_pass(order: Order) -> WiFiResult:
             issued_at=now,
             expires_at=now + timedelta(minutes=minutes),
             policy_version=policy.version,
+            policy_snapshot=_policy_snapshot(policy),
         )
         reason = "FIRST_ORDER"
     else:
@@ -86,9 +106,19 @@ def issue_or_extend_pass(order: Order) -> WiFiResult:
         extension_base = max(existing.expires_at, now)
         wifi_pass.expires_at = extension_base + timedelta(minutes=minutes)
         wifi_pass.pass_version += 1
+        wifi_pass.policy_version = policy.version
+        wifi_pass.policy_snapshot = _policy_snapshot(policy)
         if wifi_pass.status == WiFiPass.Status.EXPIRED and minutes:
             wifi_pass.status = WiFiPass.Status.ACTIVE
-        wifi_pass.save(update_fields=["expires_at", "pass_version", "status"])
+        wifi_pass.save(
+            update_fields=[
+                "expires_at",
+                "pass_version",
+                "policy_version",
+                "policy_snapshot",
+                "status",
+            ]
+        )
         reason = "ADDITIONAL_ORDER"
 
     if policy.quiet_hours_enabled and policy.quiet_hours_until:

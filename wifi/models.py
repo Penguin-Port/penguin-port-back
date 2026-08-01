@@ -63,6 +63,7 @@ class WiFiPass(models.Model):
     activated_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField()
     policy_version = models.PositiveIntegerField()
+    policy_snapshot = models.JSONField(default=dict)
     pass_version = models.PositiveIntegerField(default=1)
     network_reference = models.CharField(max_length=200, null=True, blank=True)
 
