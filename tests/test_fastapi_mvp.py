@@ -90,6 +90,12 @@ def test_pdf_customer_flow(client):
     )
     assert activate.status_code == 200
     assert activate.json()["data"]["status"] == "ACTIVE"
+    pass_response = client.get(
+        f"/public/passes/{pass_id}",
+        headers={"X-Portal-Session": session},
+    )
+    assert pass_response.status_code == 200
+    assert 0 < pass_response.json()["data"]["remainingSeconds"] <= 120 * 60
     hint = client.get("/public/upsell-hint", headers={"X-Portal-Session": session})
     assert hint.status_code == 200
     benefit_id = _first_benefit_id()
