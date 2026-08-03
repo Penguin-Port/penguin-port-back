@@ -98,7 +98,17 @@ def test_pdf_customer_flow(client):
     assert 0 < pass_response.json()["data"]["remainingSeconds"] <= 120 * 60
     hint = client.get("/public/upsell-hint", headers={"X-Portal-Session": session})
     assert hint.status_code == 200
-    benefit_id = _first_benefit_id()
+    options = client.get(
+        f"/public/rewards/grants/{data['newRewardGrantIds'][0]}/options",
+        headers={"X-Portal-Session": session},
+    )
+    assert options.status_code == 200
+    options_data = options.json()["data"]
+    assert options_data["grantId"] == data["newRewardGrantIds"][0]
+    assert options_data["tierAmount"] == 5000
+    assert options_data["status"] == "AWAITING_CHOICE"
+    assert options_data["options"][0]["recommended"] is True
+    benefit_id = options_data["options"][0]["benefitId"]
     choose = client.post(
         f"/public/rewards/{data['newRewardGrantIds'][0]}/choose",
         headers={"X-Portal-Session": session},
@@ -121,13 +131,6 @@ def test_exchange_reports_additional_order_minutes(client):
 
     assert exchange.status_code == 200
     assert exchange.json()["data"]["providedMinutes"] == 60
-
-
-def _first_benefit_id():
-    from app.models import RewardBenefit
-
-    with SessionLocal() as db:
-        return db.scalar(select(RewardBenefit)).id
 
 
 def test_pdf_admin_flow_and_ai_decision(client):

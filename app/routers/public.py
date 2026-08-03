@@ -311,6 +311,51 @@ def upsell_hint(
     )
 
 
+def _portal_grant(db: Session, claims: dict, grant_id: str) -> RewardGrant:
+    grant = db.get(RewardGrant, grant_id)
+    if (
+        grant is None
+        or grant.store_id != claims["storeId"]
+        or grant.customer_key != claims["customerKey"]
+    ):
+        raise HTTPException(status_code=404, detail="리워드 지급 건을 찾을 수 없습니다.")
+    return grant
+
+
+@router.get("/public/rewards/grants/{grant_id}/options")
+def reward_options(
+    grant_id: str,
+    claims: dict = Depends(require_portal_session),
+    db: Session = Depends(get_db),
+):
+    grant = _portal_grant(db, claims, grant_id)
+    tier = db.get(RewardTier, grant.tier_id)
+    if tier is None:
+        raise HTTPException(status_code=404, detail="리워드 티어를 찾을 수 없습니다.")
+    benefits = db.scalars(
+        select(RewardBenefit)
+        .where(RewardBenefit.tier_id == grant.tier_id)
+        .order_by(RewardBenefit.id)
+    ).all()
+    return success(
+        {
+            "grantId": grant.id,
+            "tierAmount": tier.threshold_amount,
+            "status": grant.status,
+            "options": [
+                {
+                    "benefitId": benefit.id,
+                    "type": benefit.benefit_type,
+                    "title": benefit.title,
+                    "payload": benefit.payload,
+                    "recommended": index == 0,
+                }
+                for index, benefit in enumerate(benefits)
+            ],
+        }
+    )
+
+
 @router.post("/public/rewards/{grant_id}/choose")
 def choose_reward(
     grant_id: str,
@@ -318,9 +363,7 @@ def choose_reward(
     claims: dict = Depends(require_portal_session),
     db: Session = Depends(get_db),
 ):
-    grant = db.get(RewardGrant, grant_id)
-    if grant is None or grant.store_id != claims["storeId"] or grant.customer_key != claims["customerKey"]:
-        raise HTTPException(status_code=404, detail="리워드 지급 건을 찾을 수 없습니다.")
+    grant = _portal_grant(db, claims, grant_id)
     benefit = db.get(RewardBenefit, payload.benefitId)
     if benefit is None:
         raise HTTPException(status_code=404, detail="리워드 혜택을 찾을 수 없습니다.")

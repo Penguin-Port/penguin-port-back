@@ -121,6 +121,7 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | POST | `/public/passes/{id}/activate` | Wi-Fi 활성화 |
 | GET | `/public/passes/{id}` | 상태·타이머·누적 조회 |
 | GET | `/public/upsell-hint` | 다음 티어 잔액 조회 |
+| GET | `/public/rewards/grants/{grantId}/options` | 리워드 혜택 선택지 조회 |
 | POST | `/public/rewards/{grantId}/choose` | 즉시 혜택/7일 쿠폰 선택 |
 | POST | `/admin/login` | 점주 JWT 로그인 |
 | GET | `/admin/passes/active` | 활성 이용권 폴링 목록 |
@@ -129,6 +130,12 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | GET | `/admin/ai/recommendations` | AI 추천 카드 조회 |
 | POST | `/admin/ai/recommendations/{id}/accept` | 추천 승인·프로모션 생성 |
 | POST | `/admin/ai/recommendations/{id}/reject` | 추천 거절 |
+
+Customer Portal 연동 응답에는 다음 표시용 필드가 포함됩니다.
+
+- `POST /public/order-claims/exchange`: `storeName`, `orderNo`, `items`, `paidAmount`, `providedMinutes`
+- `GET /public/passes/{id}`: `remainingSeconds` (응답 `meta.serverTime` 기준)
+- `GET /public/rewards/grants/{grantId}/options`: `grantId`, `tierAmount`, `status`, `options`
 
 ### 인증
 
