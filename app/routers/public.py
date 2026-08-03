@@ -16,6 +16,7 @@ from app.models import (
     DemoMessage,
     Order,
     OrderClaim,
+    OrderItem,
     OtpChallenge,
     RewardBenefit,
     RewardGrant,
@@ -30,6 +31,7 @@ from app.schemas import (
     RewardChooseRequest,
 )
 from app.services.demo_network import authorize
+from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.rewards import choose_benefit
 from app.services.wifi import expire_due_passes, pass_data
 from app.time import db_now
@@ -59,6 +61,24 @@ def _portal_pass(db: Session, claims: dict, pass_id: str) -> WiFiPass:
     return wifi_pass
 
 
+def _provided_minutes(db: Session, order: Order) -> int:
+    first_order_id = db.scalar(
+        select(Order.id)
+        .where(
+            Order.store_id == order.store_id,
+            Order.customer_key == order.customer_key,
+            Order.business_date == order.business_date,
+        )
+        .order_by(Order.created_at.asc(), Order.id.asc())
+        .limit(1)
+    )
+    if order.id == first_order_id:
+        minutes, _ = first_order_minutes(order.total_amount)
+    else:
+        minutes, _ = additional_order_minutes(order.total_amount)
+    return minutes
+
+
 @router.post("/public/order-claims/exchange")
 def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db)):
     token_hash = hashlib.sha256(payload.orderClaim.encode()).hexdigest()
@@ -73,6 +93,14 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
     order = db.get(Order, claim.order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+    store = db.get(Store, order.store_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail="매장을 찾을 수 없습니다.")
+    order_items = db.scalars(
+        select(OrderItem)
+        .where(OrderItem.order_id == order.id)
+        .order_by(OrderItem.id)
+    ).all()
     claim.exchanged_at = now
     ticket = issue_token(
         {
@@ -97,6 +125,20 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
             "requiresVerification": True,
             "passId": wifi_pass.id if wifi_pass else None,
             "expiresIn": 600,
+            "storeName": store.name,
+            "orderNo": order.external_order_id,
+            "items": [
+                {
+                    "productId": item.product_id,
+                    "name": item.name_snapshot,
+                    "quantity": item.quantity,
+                    "unitPrice": item.unit_price,
+                    "lineAmount": item.quantity * item.unit_price,
+                }
+                for item in order_items
+            ],
+            "paidAmount": order.total_amount,
+            "providedMinutes": _provided_minutes(db, order),
         }
     )
 

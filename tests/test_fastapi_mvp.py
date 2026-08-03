@@ -51,10 +51,25 @@ def test_pdf_customer_flow(client):
         json={"orderClaim": data["orderClaim"]["token"]},
     )
     assert exchange.status_code == 200
+    exchange_data = exchange.json()["data"]
+    _, product_id = ids()
+    assert exchange_data["storeName"] == "테스트 카페"
+    assert exchange_data["orderNo"] == "ORDER-1"
+    assert exchange_data["items"] == [
+        {
+            "productId": product_id,
+            "name": "아메리카노",
+            "quantity": 1,
+            "unitPrice": 5000,
+            "lineAmount": 5000,
+        }
+    ]
+    assert exchange_data["paidAmount"] == 5000
+    assert exchange_data["providedMinutes"] == 120
     send = client.post(
         "/public/otp/send",
         json={
-            "verificationTicket": exchange.json()["data"]["verificationTicket"],
+            "verificationTicket": exchange_data["verificationTicket"],
             "phone": "010-1234-5678",
         },
     )
@@ -85,6 +100,21 @@ def test_pdf_customer_flow(client):
     )
     assert choose.status_code == 200
     assert choose.json()["data"]["coupon"]["status"] == "AVAILABLE"
+
+
+def test_exchange_reports_additional_order_minutes(client):
+    first = create_order(client, "ORDER-PROVIDED-FIRST")
+    second = create_order(client, "ORDER-PROVIDED-SECOND")
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    exchange = client.post(
+        "/public/order-claims/exchange",
+        json={"orderClaim": second.json()["data"]["orderClaim"]["token"]},
+    )
+
+    assert exchange.status_code == 200
+    assert exchange.json()["data"]["providedMinutes"] == 60
 
 
 def _first_benefit_id():
