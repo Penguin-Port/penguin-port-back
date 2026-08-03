@@ -16,6 +16,7 @@ from app.models import (
     DemoMessage,
     Order,
     OrderClaim,
+    OrderItem,
     OtpChallenge,
     RewardBenefit,
     RewardGrant,
@@ -30,6 +31,7 @@ from app.schemas import (
     RewardChooseRequest,
 )
 from app.services.demo_network import authorize
+from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.rewards import choose_benefit
 from app.services.wifi import expire_due_passes, pass_data
 from app.time import db_now
@@ -59,6 +61,24 @@ def _portal_pass(db: Session, claims: dict, pass_id: str) -> WiFiPass:
     return wifi_pass
 
 
+def _provided_minutes(db: Session, order: Order) -> int:
+    first_order_id = db.scalar(
+        select(Order.id)
+        .where(
+            Order.store_id == order.store_id,
+            Order.customer_key == order.customer_key,
+            Order.business_date == order.business_date,
+        )
+        .order_by(Order.created_at.asc(), Order.id.asc())
+        .limit(1)
+    )
+    if order.id == first_order_id:
+        minutes, _ = first_order_minutes(order.total_amount)
+    else:
+        minutes, _ = additional_order_minutes(order.total_amount)
+    return minutes
+
+
 @router.post("/public/order-claims/exchange")
 def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db)):
     token_hash = hashlib.sha256(payload.orderClaim.encode()).hexdigest()
@@ -73,6 +93,14 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
     order = db.get(Order, claim.order_id)
     if order is None:
         raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+    store = db.get(Store, order.store_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail="매장을 찾을 수 없습니다.")
+    order_items = db.scalars(
+        select(OrderItem)
+        .where(OrderItem.order_id == order.id)
+        .order_by(OrderItem.id)
+    ).all()
     claim.exchanged_at = now
     ticket = issue_token(
         {
@@ -97,6 +125,20 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
             "requiresVerification": True,
             "passId": wifi_pass.id if wifi_pass else None,
             "expiresIn": 600,
+            "storeName": store.name,
+            "orderNo": order.external_order_id,
+            "items": [
+                {
+                    "productId": item.product_id,
+                    "name": item.name_snapshot,
+                    "quantity": item.quantity,
+                    "unitPrice": item.unit_price,
+                    "lineAmount": item.quantity * item.unit_price,
+                }
+                for item in order_items
+            ],
+            "paidAmount": order.total_amount,
+            "providedMinutes": _provided_minutes(db, order),
         }
     )
 
@@ -269,6 +311,51 @@ def upsell_hint(
     )
 
 
+def _portal_grant(db: Session, claims: dict, grant_id: str) -> RewardGrant:
+    grant = db.get(RewardGrant, grant_id)
+    if (
+        grant is None
+        or grant.store_id != claims["storeId"]
+        or grant.customer_key != claims["customerKey"]
+    ):
+        raise HTTPException(status_code=404, detail="리워드 지급 건을 찾을 수 없습니다.")
+    return grant
+
+
+@router.get("/public/rewards/grants/{grant_id}/options")
+def reward_options(
+    grant_id: str,
+    claims: dict = Depends(require_portal_session),
+    db: Session = Depends(get_db),
+):
+    grant = _portal_grant(db, claims, grant_id)
+    tier = db.get(RewardTier, grant.tier_id)
+    if tier is None:
+        raise HTTPException(status_code=404, detail="리워드 티어를 찾을 수 없습니다.")
+    benefits = db.scalars(
+        select(RewardBenefit)
+        .where(RewardBenefit.tier_id == grant.tier_id)
+        .order_by(RewardBenefit.id)
+    ).all()
+    return success(
+        {
+            "grantId": grant.id,
+            "tierAmount": tier.threshold_amount,
+            "status": grant.status,
+            "options": [
+                {
+                    "benefitId": benefit.id,
+                    "type": benefit.benefit_type,
+                    "title": benefit.title,
+                    "payload": benefit.payload,
+                    "recommended": index == 0,
+                }
+                for index, benefit in enumerate(benefits)
+            ],
+        }
+    )
+
+
 @router.post("/public/rewards/{grant_id}/choose")
 def choose_reward(
     grant_id: str,
@@ -276,9 +363,7 @@ def choose_reward(
     claims: dict = Depends(require_portal_session),
     db: Session = Depends(get_db),
 ):
-    grant = db.get(RewardGrant, grant_id)
-    if grant is None or grant.store_id != claims["storeId"] or grant.customer_key != claims["customerKey"]:
-        raise HTTPException(status_code=404, detail="리워드 지급 건을 찾을 수 없습니다.")
+    grant = _portal_grant(db, claims, grant_id)
     benefit = db.get(RewardBenefit, payload.benefitId)
     if benefit is None:
         raise HTTPException(status_code=404, detail="리워드 혜택을 찾을 수 없습니다.")

@@ -51,10 +51,25 @@ def test_pdf_customer_flow(client):
         json={"orderClaim": data["orderClaim"]["token"]},
     )
     assert exchange.status_code == 200
+    exchange_data = exchange.json()["data"]
+    _, product_id = ids()
+    assert exchange_data["storeName"] == "테스트 카페"
+    assert exchange_data["orderNo"] == "ORDER-1"
+    assert exchange_data["items"] == [
+        {
+            "productId": product_id,
+            "name": "아메리카노",
+            "quantity": 1,
+            "unitPrice": 5000,
+            "lineAmount": 5000,
+        }
+    ]
+    assert exchange_data["paidAmount"] == 5000
+    assert exchange_data["providedMinutes"] == 120
     send = client.post(
         "/public/otp/send",
         json={
-            "verificationTicket": exchange.json()["data"]["verificationTicket"],
+            "verificationTicket": exchange_data["verificationTicket"],
             "phone": "010-1234-5678",
         },
     )
@@ -75,9 +90,25 @@ def test_pdf_customer_flow(client):
     )
     assert activate.status_code == 200
     assert activate.json()["data"]["status"] == "ACTIVE"
+    pass_response = client.get(
+        f"/public/passes/{pass_id}",
+        headers={"X-Portal-Session": session},
+    )
+    assert pass_response.status_code == 200
+    assert 0 < pass_response.json()["data"]["remainingSeconds"] <= 120 * 60
     hint = client.get("/public/upsell-hint", headers={"X-Portal-Session": session})
     assert hint.status_code == 200
-    benefit_id = _first_benefit_id()
+    options = client.get(
+        f"/public/rewards/grants/{data['newRewardGrantIds'][0]}/options",
+        headers={"X-Portal-Session": session},
+    )
+    assert options.status_code == 200
+    options_data = options.json()["data"]
+    assert options_data["grantId"] == data["newRewardGrantIds"][0]
+    assert options_data["tierAmount"] == 5000
+    assert options_data["status"] == "AWAITING_CHOICE"
+    assert options_data["options"][0]["recommended"] is True
+    benefit_id = options_data["options"][0]["benefitId"]
     choose = client.post(
         f"/public/rewards/{data['newRewardGrantIds'][0]}/choose",
         headers={"X-Portal-Session": session},
@@ -87,11 +118,19 @@ def test_pdf_customer_flow(client):
     assert choose.json()["data"]["coupon"]["status"] == "AVAILABLE"
 
 
-def _first_benefit_id():
-    from app.models import RewardBenefit
+def test_exchange_reports_additional_order_minutes(client):
+    first = create_order(client, "ORDER-PROVIDED-FIRST")
+    second = create_order(client, "ORDER-PROVIDED-SECOND")
+    assert first.status_code == 201
+    assert second.status_code == 201
 
-    with SessionLocal() as db:
-        return db.scalar(select(RewardBenefit)).id
+    exchange = client.post(
+        "/public/order-claims/exchange",
+        json={"orderClaim": second.json()["data"]["orderClaim"]["token"]},
+    )
+
+    assert exchange.status_code == 200
+    assert exchange.json()["data"]["providedMinutes"] == 60
 
 
 def test_pdf_admin_flow_and_ai_decision(client):

@@ -194,6 +194,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /public/rewards/grants/{grant_id}/options:
+    get:
+      tags:
+      - Public
+      summary: Reward Options
+      operationId: reward_options_public_rewards_grants__grant_id__options_get
+      parameters:
+      - name: grant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Grant Id
+      - name: x-portal-session
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Portal-Session
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /public/rewards/{grant_id}/choose:
     post:
       tags:
