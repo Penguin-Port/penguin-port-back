@@ -49,6 +49,14 @@ class AdminLoginRequest(BaseModel):
     password: str
 
 
+class AdminRefreshRequest(BaseModel):
+    refreshToken: str | None = None
+
+
+class AdminLogoutRequest(BaseModel):
+    refreshToken: str | None = None
+
+
 class AdminPassExtendRequest(BaseModel):
     storeId: str | None = None
     minutes: int = Field(ge=1)
@@ -61,11 +69,36 @@ class AdminPassExpireRequest(BaseModel):
 class RecommendationDecisionRequest(BaseModel):
     storeId: str
     version: int = Field(ge=1)
+    menuIds: list[str] | None = None
+    discountRate: int | None = Field(default=None, ge=0, le=100)
+    startsAt: datetime | None = None
+    endsAt: datetime | None = None
+
+
+class RecommendationPatchRequest(RecommendationDecisionRequest):
+    pass
 
 
 class RecommendationRejectRequest(BaseModel):
     storeId: str | None = None
     reason: str = ""
+
+
+class PolicyTierRequest(BaseModel):
+    minAmount: int = Field(ge=0)
+    minutes: int = Field(ge=0)
+
+
+class WifiPolicyPublishRequest(BaseModel):
+    version: int = Field(ge=1)
+    baseMinutes: int = Field(ge=1, le=1440)
+    firstOrderTiers: list[PolicyTierRequest] = Field(default_factory=list, max_length=8)
+    additionalOrderTiers: list[PolicyTierRequest] = Field(default_factory=list, max_length=8)
+
+
+class WifiPolicySimulationRequest(BaseModel):
+    orderType: str = Field(pattern=r"^(FIRST|ADDITIONAL)$")
+    amount: int = Field(ge=0)
 
 
 class SuccessEnvelope(BaseModel):

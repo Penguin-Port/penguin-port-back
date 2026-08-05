@@ -325,3 +325,104 @@ def test_immediate_reward_is_consumed_by_the_next_order(client):
     second = create_order(client, "ORDER-IMMEDIATE-SECOND", phone="010-5555-0002")
     assert second.status_code == 201
     assert second.json()["data"]["appliedRewards"][0]["status"] == "CONSUMED"
+
+
+def test_admin_refresh_rotates_and_logout_revokes_refresh_token(client):
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    assert login.status_code == 200
+    first_tokens = login.json()["data"]
+    assert first_tokens["role"] == "OWNER"
+    refreshed = client.post(
+        "/admin/refresh", json={"refreshToken": first_tokens["refreshToken"]}
+    )
+    assert refreshed.status_code == 200
+    second_tokens = refreshed.json()["data"]
+    assert second_tokens["refreshToken"] != first_tokens["refreshToken"]
+    reused = client.post(
+        "/admin/refresh", json={"refreshToken": first_tokens["refreshToken"]}
+    )
+    assert reused.status_code == 401
+    me = client.get(
+        "/admin/me",
+        headers={"Authorization": f"Bearer {second_tokens['accessToken']}"},
+    )
+    assert me.status_code == 200
+    assert me.json()["data"]["role"] == "OWNER"
+    logged_out = client.post(
+        "/admin/logout", json={"refreshToken": second_tokens["refreshToken"]}
+    )
+    assert logged_out.status_code == 200
+    assert (
+        client.post(
+            "/admin/refresh", json={"refreshToken": second_tokens["refreshToken"]}
+        ).status_code
+        == 401
+    )
+
+
+def test_admin_can_simulate_and_publish_wifi_policy(client):
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    token = login.json()["data"]["accessToken"]
+    auth = {"Authorization": f"Bearer {token}"}
+    current = client.get("/admin/wifi/policies", headers=auth)
+    assert current.status_code == 200
+    version = current.json()["data"]["version"]
+    simulated = client.post(
+        "/admin/wifi/policies/simulate",
+        headers=auth,
+        json={"orderType": "FIRST", "amount": 10000},
+    )
+    assert simulated.status_code == 200
+    assert simulated.json()["data"]["minutes"] == 150
+    published = client.post(
+        "/admin/wifi/policies/publish",
+        headers=auth,
+        json={
+            "version": version,
+            "baseMinutes": 90,
+            "firstOrderTiers": [{"minAmount": 10000, "minutes": 20}],
+            "additionalOrderTiers": [{"minAmount": 5000, "minutes": 45}],
+        },
+    )
+    assert published.status_code == 200
+    assert published.json()["data"]["version"] == version + 1
+    after = client.post(
+        "/admin/wifi/policies/simulate",
+        headers=auth,
+        json={"orderType": "FIRST", "amount": 10000},
+    )
+    assert after.json()["data"]["minutes"] == 110
+
+
+def test_admin_can_edit_then_accept_ai_recommendation(client):
+    seeded = seed(
+        store_name="추천 수정 카페",
+        username="editor",
+        password="password",
+    )
+    login = client.post("/admin/login", json={"username": "editor", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+    recommendation = client.get("/admin/ai/recommendations", headers=auth).json()["data"][0]
+    starts = datetime.now(timezone.utc) + timedelta(hours=1)
+    ends = starts + timedelta(hours=2)
+    edited = client.patch(
+        f"/admin/ai/recommendations/{recommendation['recommendationId']}",
+        headers=auth,
+        json={
+            "storeId": seeded["storeId"],
+            "version": recommendation["version"],
+            "menuIds": [seeded["productId"]],
+            "discountRate": 20,
+            "startsAt": starts.isoformat(),
+            "endsAt": ends.isoformat(),
+        },
+    )
+    assert edited.status_code == 200
+    edited_data = edited.json()["data"]
+    accepted = client.post(
+        f"/admin/ai/recommendations/{recommendation['recommendationId']}/accept",
+        headers=auth,
+        json={"storeId": seeded["storeId"], "version": edited_data["version"]},
+    )
+    assert accepted.status_code == 201
+    assert accepted.json()["data"]["status"] == "ACCEPTED"

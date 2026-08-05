@@ -130,7 +130,7 @@ def create_order(
         )
     )
     if wifi_pass is None:
-        minutes, snapshot = first_order_minutes(payload.totalAmount)
+        minutes, snapshot = first_order_minutes(payload.totalAmount, store.policy_config)
         wifi_pass = WiFiPass(
             store_id=store.id,
             customer_key=customer_key,
@@ -143,7 +143,7 @@ def create_order(
         )
         db.add(wifi_pass)
     else:
-        minutes, snapshot = additional_order_minutes(payload.totalAmount)
+        minutes, snapshot = additional_order_minutes(payload.totalAmount, store.policy_config)
         wifi_pass.expires_at = max(wifi_pass.expires_at, now) + timedelta(minutes=minutes)
         wifi_pass.version += 1
         wifi_pass.policy_snapshot = snapshot

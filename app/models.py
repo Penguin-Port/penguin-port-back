@@ -21,6 +21,8 @@ class Store(Base):
     timezone: Mapped[str] = mapped_column(String(64), default="Asia/Seoul")
     business_day_cutoff: Mapped[str] = mapped_column(String(5), default="00:00")
     otp_skip_enabled: Mapped[bool] = mapped_column(default=False)
+    policy_config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    policy_version: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class Product(Base):
@@ -248,6 +250,18 @@ class AdminUser(Base):
     username: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(256))
     role: Mapped[str] = mapped_column(String(20), default="OWNER")
+
+
+class RefreshTokenSession(Base):
+    __tablename__ = "refresh_token_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_value)
+    admin_id: Mapped[str] = mapped_column(ForeignKey("admin_users.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    replaced_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
 
 
 class IdempotencyRecord(Base):

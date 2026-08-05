@@ -32,6 +32,10 @@ def issue_token(payload: dict[str, Any], *, minutes: int) -> str:
     return jwt.encode(claims, settings.jwt_secret, algorithm="HS256")
 
 
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def decode_token(token: str) -> dict[str, Any]:
     try:
         return jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])

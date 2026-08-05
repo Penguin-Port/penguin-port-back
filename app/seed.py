@@ -24,7 +24,22 @@ def seed(
     with session_scope() as db:
         store = db.scalar(select(Store).where(Store.name == store_name))
         if store is None:
-            store = Store(name=store_name, timezone="Asia/Seoul", business_day_cutoff="00:00")
+            store = Store(
+                name=store_name,
+                timezone="Asia/Seoul",
+                business_day_cutoff="00:00",
+                policy_config={
+                    "baseMinutes": 120,
+                    "firstOrderTiers": [
+                        {"minAmount": 10000, "minutes": 30},
+                        {"minAmount": 15000, "minutes": 60},
+                    ],
+                    "additionalOrderTiers": [
+                        {"minAmount": 5000, "minutes": 60},
+                        {"minAmount": 10000, "minutes": 120},
+                    ],
+                },
+            )
             db.add(store)
             db.flush()
 
@@ -126,6 +141,7 @@ def seed(
         else:
             admin_user.store_id = store.id
             admin_user.password_hash = hash_password(password)
+            admin_user.role = "OWNER"
 
         title = "오후 2~4시 아메리카노 15% 할인 추천"
         recommendation = None
