@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import os
 import secrets
 from datetime import timedelta
 
@@ -65,7 +66,12 @@ def start_verification(*, verification_ticket: str, phone: str):
         code_hash="pending",
         expires_at=timezone.now() + timedelta(minutes=3),
     )
-    code = settings.DEMO_OTP_CODE or f"{secrets.randbelow(1_000_000):06d}"
+    is_demo_provider = os.getenv("NOTIFICATION_PROVIDER", "DEMO").upper() == "DEMO"
+    code = (
+        settings.DEMO_OTP_CODE
+        if is_demo_provider and settings.DEMO_OTP_CODE
+        else f"{secrets.randbelow(1_000_000):06d}"
+    )
     challenge.code_hash = _hash_code(challenge.id, code)
     challenge.save(update_fields=["code_hash"])
     send_demo_notification(
@@ -74,12 +80,13 @@ def start_verification(*, verification_ticket: str, phone: str):
         template="OTP_CODE",
         destination_last4=challenge.phone_last4,
         destination=phone,
+        message_body=f"인증번호: {code}",
         payload={
             "challengeId": str(challenge.id),
-            "demoCode": code if settings.DEMO_OTP_CODE else None,
+            "demoCode": code if is_demo_provider else None,
         },
     )
-    return challenge, code if settings.DEMO_OTP_CODE else None
+    return challenge, code if is_demo_provider else None
 
 
 @transaction.atomic

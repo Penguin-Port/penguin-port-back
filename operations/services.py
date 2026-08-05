@@ -1,4 +1,5 @@
 import hashlib
+import os
 from datetime import timedelta
 
 from django.utils import timezone
@@ -57,6 +58,7 @@ def send_demo_notification(
     destination_last4: str,
     payload: dict,
     destination: str = "",
+    message_body: str = "",
 ):
     """Send through the configured provider and keep an audit/demo inbox row.
 
@@ -64,7 +66,7 @@ def send_demo_notification(
     ``NOTIFICATION_PROVIDER=SOLAPI`` or ``HTTP`` to use a real gateway;
     ``DEMO`` remains deterministic for local development.
     """
-    body = (
+    body = message_body or (
         f"인증번호: {payload['demoCode']}"
         if template == "OTP_CODE" and payload.get("demoCode")
         else str(payload.get("body") or template)
@@ -91,13 +93,15 @@ def send_demo_notification(
         # the database notification log.
         delivery = DeliveryResult("IN_APP", "in-app")
 
-    demo_message = DemoMessage.objects.create(
-        store=store,
-        channel=channel,
-        destination_last4=destination_last4,
-        body=body,
-        payload=payload,
-    )
+    demo_message = None
+    if delivery.provider == "DEMO" or os.getenv("KEEP_DEMO_INBOX", "0") == "1":
+        demo_message = DemoMessage.objects.create(
+            store=store,
+            channel=channel,
+            destination_last4=destination_last4,
+            body=body,
+            payload=payload,
+        )
     notification = Notification.objects.create(
         store=store,
         channel=channel,
@@ -111,8 +115,9 @@ def send_demo_notification(
         sent_at=timezone.now() if delivery.status == "SENT" else None,
     )
     # Notification은 운영 이력이고 DemoMessage는 PDF MVP의 Demo Inbox다.
-    notification.payload = {**notification.payload, "demoMessageId": str(demo_message.id)}
-    notification.save(update_fields=["payload"])
+    if demo_message is not None:
+        notification.payload = {**notification.payload, "demoMessageId": str(demo_message.id)}
+        notification.save(update_fields=["payload"])
     return notification
 
 

@@ -1,8 +1,9 @@
-# PDF 축소 MVP 구현 현황
+# 백엔드 구현 현황
 
 | 요구사항 | 구현 |
 | --- | --- |
 | FastAPI 단일 서버 | `app/main.py` |
+| Django 전체 API 경로 | `config/urls.py`, `api/` |
 | SQLAlchemy ORM | `app/models.py` |
 | Supabase PostgreSQL 연결 | `DATABASE_URL` + psycopg |
 | Alembic 마이그레이션 | `alembic upgrade head` |
@@ -29,6 +30,7 @@
 | Wi-Fi 정책 | `/admin/wifi/policies` 조회·simulate·publish + 버전 충돌 |
 | AI 추천 1건 승인·거절 | `/admin/ai/recommendations/*` |
 | 실제 OpenAI 추천 생성 | `POST /admin/ai/recommendations/generate` + Responses API Structured Outputs + 규칙 fallback |
+| Django OpenAI 추천 생성 | `ai_ops/providers.py`, `ai_ops/services.py` |
 | AI 추천 수정·검증 | `PATCH` 후 할인율·메뉴·시간·Promotion 생성 검증 |
 | 공통 오류 규격 | Problem JSON + requestId 예외 핸들러 |
 | AI 매출 요약 | `/admin/ai/sales-summary` + `analytics_hourly` 저장 |
@@ -38,5 +40,12 @@
 | 감사 로그·보존 정리 | `/admin/audit`, lifespan 민감정보/감사 로그 purge |
 | OTP Rate Limit | 주문 단위 발송 윈도우 제한 |
 | 60초 만료 루프 | FastAPI lifespan `expire_due_passes` |
-| 별도 Worker/Redis/Celery | 사용하지 않음 |
-| Docker Compose 배포 | 사용하지 않음 |
+| Redis 이벤트 fan-out | `app/services/events.py` |
+| FastAPI Celery/Beat | `app/celery_app.py`, `app/tasks.py` |
+| Django Celery/Beat | `config/celery.py`, `operations/celery_tasks.py` |
+| 관리자 SSE | FastAPI `/admin/events`, Django `/api/v1/stores/{storeId}/events` |
+| 관리자 팀/역할 관리 | FastAPI `/admin/team`, Django `/api/v1/admin/team` |
+| 실제 SMS/알림톡 provider | `integrations/providers.py` (`SOLAPI`/`HTTP`) |
+| 실제 Wi-Fi AP provider | `integrations/providers.py` (`HTTP`) |
+| 외부 트렌드 provider | `integrations/providers.py` (`HTTP`) |
+| Docker Compose 운영형 구성 | `docker-compose.yml` |

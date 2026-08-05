@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+import os
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -35,22 +36,23 @@ def send_otp(
     except ProviderError:
         raise
 
-    # The demo inbox keeps only the masked destination. It is also useful when
-    # a real provider is selected and the operator wants a local delivery log.
-    db.add(
-        DemoMessage(
-            store_id=store_id,
-            channel="SMS",
-            destination=masked_phone(phone),
-            body=body,
-            payload={
-                "challengeId": challenge_id,
-                "provider": delivery.provider,
-                "providerReference": delivery.reference,
-                "demoCode": code if delivery.provider == "DEMO" else None,
-            },
+    # Never persist the raw OTP for a real provider. The Demo Inbox is only
+    # written for deterministic local demos unless explicitly requested.
+    if delivery.provider == "DEMO" or os.getenv("KEEP_DEMO_INBOX", "0") == "1":
+        db.add(
+            DemoMessage(
+                store_id=store_id,
+                channel="SMS",
+                destination=masked_phone(phone),
+                body=body,
+                payload={
+                    "challengeId": challenge_id,
+                    "provider": delivery.provider,
+                    "providerReference": delivery.reference,
+                    "demoCode": code if delivery.provider == "DEMO" else None,
+                },
+            )
         )
-    )
     return delivery
 
 
@@ -62,4 +64,3 @@ def send_message(
 ) -> DeliveryResult:
     provider = get_notification_provider()
     return provider.send_sms(destination=phone, body=body, payload=payload or {})
-
