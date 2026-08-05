@@ -499,15 +499,29 @@ def generate_sales_summary_recommendation(
 
 
 def generate_menu_trend_recommendations(db: Session, *, store) -> list[AIRecommendation]:
+    from integrations.providers import DemoTrendProvider, ProviderError, get_trend_provider
+
+    catalog = [
+        {"menuId": item.id, "name": item.name, "price": item.price}
+        for item in db.scalars(
+            select(Product).where(Product.store_id == store.id, Product.is_active.is_(True))
+        ).all()
+    ]
+    try:
+        trends = get_trend_provider().search(catalog=catalog)
+    except ProviderError as exc:
+        logger.warning("Trend provider fallback: %s", type(exc).__name__)
+        trends = DemoTrendProvider().search(catalog=catalog)
+
     recommendations = []
-    for name in ["말차 디저트", "버터떡", "시즌 과일 라떼"]:
+    for trend in trends:
         recommendation = AIRecommendation(
             store_id=store.id,
             type="MENU_TREND",
-            payload={"menuName": name, "source": "FALLBACK_TEMPLATE"},
-            reason="외부 트렌드 연동 전 규칙 기반 폴백 카드입니다.",
-            evidence={"provider": "FALLBACK_TEMPLATE"},
-            confidence=0.5,
+            payload={"menuName": trend.name, "source": trend.source},
+            reason=trend.reason,
+            evidence={"provider": trend.source, "catalogSize": len(catalog)},
+            confidence=trend.score,
         )
         db.add(recommendation)
         db.flush()

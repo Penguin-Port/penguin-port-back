@@ -13,7 +13,6 @@ from app.http import success
 from app.models import (
     Coupon,
     DailySpendBalance,
-    DemoMessage,
     Order,
     OrderClaim,
     OrderItem,
@@ -34,6 +33,8 @@ from app.schemas import (
 )
 from app.services.demo_network import authorize
 from app.services.audit import record_audit
+from app.services.notifications import generate_otp, send_otp as deliver_otp
+from integrations.providers import get_notification_provider
 from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.rewards import choose_benefit
 from app.services.wifi import expire_due_passes, pass_data
@@ -189,24 +190,27 @@ def send_otp(payload: OtpSendRequest, db: Session = Depends(get_db)):
     )
     db.add(challenge)
     db.flush()
-    code = settings.demo_otp_code
+    provider = get_notification_provider()
+    code = generate_otp(configured_code=settings.demo_otp_code, provider_name=provider.name)
     challenge.code_hash = _hash_code(challenge.id, code)
-    db.add(
-        DemoMessage(
+    try:
+        delivery = deliver_otp(
+            db,
             store_id=order.store_id,
-            channel="SMS",
-            destination=masked_phone(payload.phone),
-            body=f"인증번호: {code}",
-            payload={"challengeId": challenge.id, "demoCode": code},
+            phone=payload.phone,
+            code=code,
+            challenge_id=challenge.id,
         )
-    )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OTP 발송에 실패했습니다: {exc}") from exc
     db.commit()
     return success(
         {
             "challengeId": challenge.id,
             "expiresAt": challenge.expires_at.isoformat(),
             "maxAttempts": 5,
-            "demoCode": code,
+            "demoCode": code if delivery.provider == "DEMO" else None,
+            "provider": delivery.provider,
         }
     )
 

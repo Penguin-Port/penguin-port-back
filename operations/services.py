@@ -10,6 +10,7 @@ from operations.models import (
     OutboxEvent,
     PrivacyRetentionPolicy,
 )
+from integrations.providers import DeliveryResult, get_notification_provider
 
 
 def emit_event(*, store, type: str, aggregate_type: str, aggregate_id, payload: dict):
@@ -49,17 +50,52 @@ def write_audit(
 
 
 def send_demo_notification(
-    *, store, channel: str, template: str, destination_last4: str, payload: dict
+    *,
+    store,
+    channel: str,
+    template: str,
+    destination_last4: str,
+    payload: dict,
+    destination: str = "",
 ):
+    """Send through the configured provider and keep an audit/demo inbox row.
+
+    The historical function name is retained for callers and tests. Set
+    ``NOTIFICATION_PROVIDER=SOLAPI`` or ``HTTP`` to use a real gateway;
+    ``DEMO`` remains deterministic for local development.
+    """
+    body = (
+        f"인증번호: {payload['demoCode']}"
+        if template == "OTP_CODE" and payload.get("demoCode")
+        else str(payload.get("body") or template)
+    )
+    provider = get_notification_provider()
+    if channel == Notification.Channel.SMS:
+        if provider.name != "DEMO" and not destination:
+            raise ValueError("실제 SMS 발송에는 destination 전화번호가 필요합니다.")
+        delivery = provider.send_sms(
+            destination=destination,
+            body=body,
+            payload=payload,
+        )
+    elif channel == Notification.Channel.ALIMTALK:
+        if provider.name != "DEMO" and not destination:
+            raise ValueError("실제 알림톡 발송에는 destination 전화번호가 필요합니다.")
+        delivery = provider.send_alimtalk(
+            destination=destination,
+            body=body,
+            payload=payload,
+        )
+    else:
+        # In-app messages have no external destination and are represented by
+        # the database notification log.
+        delivery = DeliveryResult("IN_APP", "in-app")
+
     demo_message = DemoMessage.objects.create(
         store=store,
         channel=channel,
         destination_last4=destination_last4,
-        body=(
-            f"인증번호: {payload['demoCode']}"
-            if template == "OTP_CODE" and payload.get("demoCode")
-            else template
-        ),
+        body=body,
         payload=payload,
     )
     notification = Notification.objects.create(
@@ -68,11 +104,11 @@ def send_demo_notification(
         template=template,
         destination_last4=destination_last4,
         payload=payload,
-        provider="DEMO",
-        status=Notification.Status.SENT,
+        provider=delivery.provider,
+        status=Notification.Status.SENT if delivery.status == "SENT" else Notification.Status.FAILED,
         attempts=1,
-        provider_reference=f"demo-{timezone.now().timestamp()}",
-        sent_at=timezone.now(),
+        provider_reference=delivery.reference,
+        sent_at=timezone.now() if delivery.status == "SENT" else None,
     )
     # Notification은 운영 이력이고 DemoMessage는 PDF MVP의 Demo Inbox다.
     notification.payload = {**notification.payload, "demoMessageId": str(demo_message.id)}

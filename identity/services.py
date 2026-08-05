@@ -73,6 +73,7 @@ def start_verification(*, verification_ticket: str, phone: str):
         channel=Notification.Channel.SMS,
         template="OTP_CODE",
         destination_last4=challenge.phone_last4,
+        destination=phone,
         payload={
             "challengeId": str(challenge.id),
             "demoCode": code if settings.DEMO_OTP_CODE else None,
