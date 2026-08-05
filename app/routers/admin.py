@@ -1027,6 +1027,8 @@ def _promotion_payload(
     updated["endsAt"] = ends_at.isoformat()
     if not updated.get("title"):
         raise HTTPException(status_code=422, detail="프로모션 제목이 필요합니다.")
+    if recommendation.type == "TIME_SALE" and not updated.get("menuIds"):
+        raise HTTPException(status_code=422, detail="프로모션 메뉴를 하나 이상 선택해야 합니다.")
     return updated, starts_at, ends_at
 
 

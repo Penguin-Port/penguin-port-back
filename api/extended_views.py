@@ -20,6 +20,7 @@ from ai_ops.services import (
     generate_sales_summary,
     generate_time_sale_recommendation,
     reject_recommendation,
+    validate_promotion_payload,
 )
 from api.access import require_store_access
 from api.auth import create_portal_session, read_portal_session
@@ -1166,6 +1167,20 @@ class AdminRecommendationEditView(APIView):
                 code="RECOMMENDATION_VERSION_CONFLICT",
                 status=409,
             )
+        if recommendation.type == AIRecommendation.Type.TIME_SALE:
+            try:
+                data["payload"] = validate_promotion_payload(
+                    store=store,
+                    recommendation_type=recommendation.type,
+                    payload=data["payload"],
+                )
+            except ValueError as exc:
+                return problem_response(
+                    request=request,
+                    detail=str(exc),
+                    code="RECOMMENDATION_PAYLOAD_INVALID",
+                    status=422,
+                )
         recommendation.payload = data["payload"]
         recommendation.reason = data.get("reason", recommendation.reason)
         recommendation.status = AIRecommendation.Status.EDITED

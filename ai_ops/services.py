@@ -1,5 +1,6 @@
 from datetime import timedelta, timezone as datetime_timezone
 from decimal import Decimal
+import os
 
 from django.db import transaction
 from django.db.models import Count, Sum
@@ -14,6 +15,63 @@ from catalog.models import Product
 from integrations.providers import DemoTrendProvider, ProviderError, get_trend_provider
 from ai_ops.providers import get_ai_provider
 from wifi.models import WiFiPass
+
+
+def validate_promotion_payload(*, store, recommendation_type: str, payload: dict) -> dict:
+    """Validate the editable fields before a recommendation can publish."""
+
+    if not isinstance(payload, dict):
+        raise ValueError("추천 payload는 객체여야 합니다.")
+    title = payload.get("title")
+    if not isinstance(title, str) or not title.strip() or len(title.strip()) > 160:
+        raise ValueError("추천 제목이 유효하지 않습니다.")
+
+    normalized = {**payload, "title": title.strip()}
+    menu_ids = payload.get("menuIds")
+    if recommendation_type == AIRecommendation.Type.TIME_SALE:
+        if menu_ids is not None:
+            if not isinstance(menu_ids, list):
+                raise ValueError("타임세일 메뉴 목록이 유효하지 않습니다.")
+            menu_ids = [str(item) for item in menu_ids]
+            if not menu_ids:
+                fallback_product = Product.objects.filter(store=store, is_active=True).first()
+                if fallback_product is None:
+                    raise ValueError("타임세일 메뉴를 하나 이상 선택해야 합니다.")
+                menu_ids = [str(fallback_product.id)]
+            products = Product.objects.filter(
+                store=store,
+                id__in=menu_ids,
+                is_active=True,
+            )
+            if products.count() != len(set(menu_ids)):
+                raise ValueError("추천 메뉴가 해당 매장 카탈로그와 일치하지 않습니다.")
+            normalized["menuIds"] = menu_ids
+
+    try:
+        discount_rate = int(payload.get("discountRate", 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("추천 할인율이 유효하지 않습니다.") from exc
+    if not 0 <= discount_rate <= int(os.getenv("PROMOTION_MAX_DISCOUNT_RATE", "50")):
+        raise ValueError("추천 할인율이 정책 한도를 초과했습니다.")
+    normalized["discountRate"] = discount_rate
+
+    starts_at = parse_datetime(str(payload.get("startsAt", "")))
+    ends_at = parse_datetime(str(payload.get("endsAt", "")))
+    if (
+        starts_at is None
+        or ends_at is None
+        or not timezone.is_aware(starts_at)
+        or not timezone.is_aware(ends_at)
+    ):
+        raise ValueError("추천에 유효한 startsAt, endsAt이 필요합니다.")
+    if ends_at <= starts_at:
+        raise ValueError("프로모션 종료 시각은 시작 시각 이후여야 합니다.")
+    max_hours = int(os.getenv("PROMOTION_MAX_DURATION_HOURS", "24"))
+    if ends_at - starts_at > timedelta(hours=max_hours):
+        raise ValueError("프로모션 적용 시간이 정책 한도를 초과했습니다.")
+    normalized["startsAt"] = starts_at.isoformat()
+    normalized["endsAt"] = ends_at.isoformat()
+    return normalized
 
 
 @transaction.atomic
@@ -35,24 +93,14 @@ def accept_recommendation(
     ]:
         raise ValueError("대기 또는 수정 상태의 추천만 승인할 수 있습니다.")
 
-    payload = recommendation.payload
-    if not isinstance(payload, dict):
-        raise ValueError("추천 payload는 객체여야 합니다.")
-    title = payload.get("title")
-    starts_at = parse_datetime(payload.get("startsAt") or "")
-    ends_at = parse_datetime(payload.get("endsAt") or "")
-    if (
-        not isinstance(title, str)
-        or not title.strip()
-        or len(title) > 160
-        or starts_at is None
-        or ends_at is None
-        or not timezone.is_aware(starts_at)
-        or not timezone.is_aware(ends_at)
-    ):
-        raise ValueError("추천에 유효한 title, startsAt, endsAt이 저장되어 있어야 합니다.")
-    if ends_at <= starts_at:
-        raise ValueError("프로모션 종료 시각은 시작 시각 이후여야 합니다.")
+    payload = validate_promotion_payload(
+        store=recommendation.store,
+        recommendation_type=recommendation.type,
+        payload=recommendation.payload,
+    )
+    title = payload["title"]
+    starts_at = parse_datetime(payload["startsAt"])
+    ends_at = parse_datetime(payload["endsAt"])
 
     recommendation.status = AIRecommendation.Status.ACCEPTED
     recommendation.version += 1
