@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response
 from sqlalchemy import select
@@ -11,6 +11,8 @@ from app.http import success
 from app.models import (
     AdminUser,
     AIRecommendation,
+    InventoryItem,
+    InventoryEvent,
     Product,
     Promotion,
     RefreshTokenSession,
@@ -28,11 +30,18 @@ from app.schemas import (
     RecommendationRejectRequest,
     WifiPolicyPublishRequest,
     WifiPolicySimulationRequest,
+    InventoryAdjustRequest,
+    InventoryUpsertRequest,
+)
+from app.services.analytics import (
+    get_or_create_sales_recommendation,
+    sales_summary as build_sales_summary,
 )
 from app.services.demo_network import revoke
+from app.services.inventory import calculate_risk_score, inventory_data, scan_inventory
 from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.wifi import expire_due_passes, pass_data
-from app.time import aware, db_now
+from app.time import aware, business_date as current_business_date, db_now
 
 
 router = APIRouter(tags=["Admin"])
@@ -297,6 +306,185 @@ def active_passes(
         .order_by(WiFiPass.issued_at.desc())
     ).all()
     return success([pass_data(item) for item in passes])
+
+
+@router.get("/admin/ai/sales-summary")
+def sales_summary(
+    business_date: date | None = Query(default=None, alias="businessDate"),
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    store = _store_for_admin(db, claims)
+    target_date = business_date or current_business_date(
+        db_now(), timezone_name=store.timezone, cutoff=store.business_day_cutoff
+    )
+    summary = build_sales_summary(db, store=store, business_date=target_date)
+    recommendation = get_or_create_sales_recommendation(db, store=store, summary=summary)
+    db.commit()
+    return success(
+        {
+            **summary,
+            "recommendation": {
+                "recommendationId": recommendation.id,
+                "summary": recommendation.payload.get("summary"),
+                "reason": recommendation.reason,
+                "evidence": recommendation.evidence,
+                "confidence": recommendation.confidence,
+            },
+        }
+    )
+
+
+@router.get("/admin/inventory")
+def list_inventory(
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    items = db.scalars(
+        select(InventoryItem)
+        .where(InventoryItem.store_id == claims["storeId"])
+        .order_by(InventoryItem.risk_score.desc(), InventoryItem.updated_at.desc())
+    ).all()
+    return success([inventory_data(db, item) for item in items])
+
+
+@router.post("/admin/inventory")
+def upsert_inventory(
+    payload: InventoryUpsertRequest,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _require_write_role(db, claims)
+    if payload.storeId != claims["storeId"]:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    product = db.get(Product, payload.productId)
+    if product is None or product.store_id != claims["storeId"]:
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다.")
+    item = db.scalar(
+        select(InventoryItem).where(
+            InventoryItem.store_id == claims["storeId"],
+            InventoryItem.product_id == product.id,
+        )
+    )
+    if item is None:
+        item = InventoryItem(store_id=claims["storeId"], product_id=product.id)
+        db.add(item)
+    item.quantity = payload.quantity
+    item.low_stock_threshold = payload.lowStockThreshold
+    item.expires_on = payload.expiresOn
+    item.unit = payload.unit
+    item.risk_score = calculate_risk_score(item)
+    item.updated_at = db_now()
+    db.commit()
+    return success(inventory_data(db, item))
+
+
+@router.post("/admin/inventory/{item_id}/adjust")
+def adjust_inventory(
+    item_id: str,
+    payload: InventoryAdjustRequest,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _require_write_role(db, claims)
+    if payload.storeId != claims["storeId"]:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    item = db.scalar(
+        select(InventoryItem).where(
+            InventoryItem.id == item_id,
+            InventoryItem.store_id == claims["storeId"],
+        )
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="재고 항목을 찾을 수 없습니다.")
+    new_quantity = item.quantity + payload.quantityDelta
+    if new_quantity < 0:
+        raise HTTPException(status_code=422, detail="재고 수량은 0보다 작을 수 없습니다.")
+    item.quantity = new_quantity
+    item.risk_score = calculate_risk_score(item)
+    item.updated_at = db_now()
+    db.add(
+        InventoryEvent(
+            item_id=item.id,
+            type="ADJUSTED",
+            quantity_delta=payload.quantityDelta,
+            reason=payload.reason,
+        )
+    )
+    db.commit()
+    return success(inventory_data(db, item))
+
+
+@router.post("/admin/inventory/scan")
+def scan_inventory_risk(
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _require_write_role(db, claims)
+    recommendations = scan_inventory(db, store_id=claims["storeId"])
+    db.commit()
+    return success(
+        [
+            {
+                "recommendationId": item.id,
+                "type": item.type,
+                "payload": item.payload,
+                "reason": item.reason,
+                "evidence": item.evidence,
+                "confidence": item.confidence,
+                "status": item.status,
+                "version": item.version,
+            }
+            for item in recommendations
+        ]
+    )
+
+
+@router.get("/admin/ai/inventory")
+def inventory_recommendations(
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    items = db.scalars(
+        select(AIRecommendation)
+        .where(
+            AIRecommendation.store_id == claims["storeId"],
+            AIRecommendation.type == "INVENTORY_PROMOTION",
+        )
+        .order_by(AIRecommendation.created_at.desc())
+    ).all()
+    return success(
+        [
+            {
+                "recommendationId": item.id,
+                "payload": item.payload,
+                "reason": item.reason,
+                "evidence": item.evidence,
+                "confidence": item.confidence,
+                "status": item.status,
+                "version": item.version,
+            }
+            for item in items
+        ]
+    )
+
+
+@router.get("/admin/ai/menu-trends")
+def menu_trends(
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _store_for_admin(db, claims)
+    return success(
+        [
+            {
+                "menuName": name,
+                "reason": "외부 트렌드 연동 전 규칙 기반 폴백 카드입니다.",
+                "source": "FALLBACK_TEMPLATE",
+            }
+            for name in ["말차 디저트", "버터떡", "시즌 과일 라떼"]
+        ]
+    )
 
 
 @router.post("/admin/passes/{pass_id}/extend")

@@ -190,6 +190,8 @@ Table ai_recommendations {
   type varchar(40) [not null, default: "TIME_SALE"]
   payload jsonb [not null]
   reason text [not null]
+  evidence jsonb [not null, default: "{}"]
+  confidence float
   status varchar(20) [not null, default: "PENDING"]
   version integer [not null, default: 1]
   created_at timestamptz [not null]
@@ -205,6 +207,48 @@ Table promotions {
   starts_at timestamptz [not null]
   ends_at timestamptz [not null]
   status varchar(20) [not null, default: "SCHEDULED"]
+}
+
+Table analytics_hourly {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  bucket_start timestamptz [not null]
+  order_count integer [not null, default: 0]
+  gross_sales integer [not null, default: 0]
+  wifi_active_count integer [not null, default: 0]
+  wifi_active_minutes integer [not null, default: 0]
+  menu_sales jsonb [not null, default: "{}"]
+  repeat_customer_count integer [not null, default: 0]
+  generated_at timestamptz [not null]
+
+  indexes {
+    (store_id, bucket_start) [unique]
+  }
+}
+
+Table inventory_items {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  product_id uuid [not null, ref: > products.id]
+  quantity integer [not null, default: 0]
+  unit varchar(20) [not null, default: "EA"]
+  low_stock_threshold integer [not null, default: 0]
+  expires_on date
+  risk_score integer [not null, default: 0]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (store_id, product_id) [unique]
+  }
+}
+
+Table inventory_events {
+  id uuid [pk]
+  item_id uuid [not null, ref: > inventory_items.id]
+  type varchar(24) [not null]
+  quantity_delta integer [not null, default: 0]
+  reason varchar(240) [not null]
+  occurred_at timestamptz [not null]
 }
 
 Table admin_users {

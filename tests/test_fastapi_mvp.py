@@ -483,3 +483,42 @@ def test_privacy_notice_and_problem_error_contract(client):
     assert invalid.status_code == 422
     assert invalid.json()["code"] == "REQUEST_VALIDATION_ERROR"
     assert "requestId" in invalid.json()
+
+
+def test_admin_sales_summary_and_inventory_risk_recommendation(client):
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+    summary = client.get("/admin/ai/sales-summary", headers=auth)
+    assert summary.status_code == 200
+    assert "totalSales" in summary.json()["data"]
+    assert summary.json()["data"]["recommendation"]["recommendationId"]
+
+    store_id, product_id = ids()
+    inventory = client.post(
+        "/admin/inventory",
+        headers=auth,
+        json={
+            "storeId": store_id,
+            "productId": product_id,
+            "quantity": 0,
+            "lowStockThreshold": 1,
+            "expiresOn": "2026-08-02",
+        },
+    )
+    assert inventory.status_code == 200
+    scan = client.post("/admin/inventory/scan", headers=auth)
+    assert scan.status_code == 200
+    assert scan.json()["data"][0]["type"] == "INVENTORY_PROMOTION"
+    listed = client.get("/admin/ai/inventory", headers=auth)
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["evidence"]["riskScore"] == 100
+
+
+def test_frontend_reference_aliases_are_available(client):
+    order = create_order(client, "ORDER-ALIAS", phone="010-5555-0004")
+    data = order.json()["data"]
+    session = portal_session(client, data, phone="010-5555-0004")
+    hint = client.get(
+        "/public/kiosk/upsell-hint", headers={"X-Portal-Session": session}
+    )
+    assert hint.status_code == 200

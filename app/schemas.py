@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -105,6 +105,21 @@ class WifiPolicyPublishRequest(BaseModel):
 class WifiPolicySimulationRequest(BaseModel):
     orderType: str = Field(pattern=r"^(FIRST|ADDITIONAL)$")
     amount: int = Field(ge=0)
+
+
+class InventoryUpsertRequest(BaseModel):
+    storeId: str
+    productId: str
+    quantity: int = Field(ge=0)
+    lowStockThreshold: int = Field(default=0, ge=0)
+    expiresOn: date | None = None
+    unit: str = "EA"
+
+
+class InventoryAdjustRequest(BaseModel):
+    storeId: str
+    quantityDelta: int
+    reason: str = ""
 
 
 class SuccessEnvelope(BaseModel):

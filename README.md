@@ -122,6 +122,7 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | POST | `/public/passes/{id}/activate` | Wi-Fi 활성화 |
 | GET | `/public/passes/{id}` | 상태·타이머·누적 조회 |
 | GET | `/public/upsell-hint` | 다음 티어 잔액 조회 |
+| GET | `/public/kiosk/upsell-hint` | 프론트 명세 호환 업셀 경로 |
 | GET | `/public/rewards/grants/{grantId}/options` | 리워드 혜택 선택지 조회 |
 | POST | `/public/rewards/{grantId}/choose` | 즉시 혜택/7일 쿠폰 선택 |
 | GET | `/public/coupons` | 고객 쿠폰함 |
@@ -138,6 +139,13 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | POST | `/admin/wifi/policies/simulate` | 정책 미리 계산 |
 | POST | `/admin/wifi/policies/publish` | 정책 버전 게시 |
 | GET | `/admin/ai/recommendations` | AI 추천 카드 조회 |
+| GET | `/admin/ai/sales-summary` | 시간대 매출·주문·Wi-Fi 요약 |
+| GET | `/admin/inventory` | 재고·위험도 조회 |
+| POST | `/admin/inventory` | 재고 기준값 저장 |
+| POST | `/admin/inventory/{id}/adjust` | 재고 조정 |
+| POST | `/admin/inventory/scan` | 위험 스캔·프로모션 추천 생성 |
+| GET | `/admin/ai/inventory` | 재고 프로모션 추천 조회 |
+| GET | `/admin/ai/menu-trends` | 신메뉴 폴백 추천 카드 |
 | PATCH | `/admin/ai/recommendations/{id}` | 추천 시간·메뉴·할인율 수정 |
 | POST | `/admin/ai/recommendations/{id}/accept` | 추천 승인·프로모션 생성 |
 | POST | `/admin/ai/recommendations/{id}/reject` | 추천 거절 |
@@ -196,6 +204,7 @@ curl -X POST http://127.0.0.1:8000/public/otp/confirm \
 - OTP 원문은 `otp_challenges`에 저장하지 않고 `demo_messages` Demo Inbox에만 남깁니다.
 - 부분/전액 환불은 실제 환불 금액만 당일 누적에서 차감하고, 아직 사용하지 않은 하위 티어 리워드·쿠폰은 회수합니다.
 - 모든 오류는 `type`, `title`, `status`, `code`, `detail`, `retryable`, `requestId` Problem JSON으로 반환합니다.
+- 매출 요약·재고 위험·신메뉴 카드는 규칙 기반 폴백으로 동작하며, 외부 LLM/SNS 수집은 MVP에서 호출하지 않습니다.
 
 ## 테스트
 

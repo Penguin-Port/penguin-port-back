@@ -292,6 +292,7 @@ def get_pass(
 
 
 @router.get("/public/upsell-hint")
+@router.get("/public/kiosk/upsell-hint")
 def upsell_hint(
     claims: dict = Depends(require_portal_session),
     db: Session = Depends(get_db),
@@ -399,6 +400,7 @@ def reward_options(
 
 
 @router.post("/public/rewards/{grant_id}/choose")
+@router.post("/public/rewards/grants/{grant_id}/choose")
 def choose_reward(
     grant_id: str,
     payload: RewardChooseRequest,

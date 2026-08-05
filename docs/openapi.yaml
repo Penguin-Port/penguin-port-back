@@ -222,6 +222,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /public/kiosk/upsell-hint:
+    get:
+      tags:
+      - Public
+      summary: Upsell Hint
+      operationId: upsell_hint_public_kiosk_upsell_hint_get
+      parameters:
+      - name: x-portal-session
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Portal-Session
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /public/upsell-hint:
     get:
       tags:
@@ -266,6 +291,43 @@ paths:
         schema:
           type: string
           title: X-Portal-Session
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /public/rewards/grants/{grant_id}/choose:
+    post:
+      tags:
+      - Public
+      summary: Choose Reward
+      operationId: choose_reward_public_rewards_grants__grant_id__choose_post
+      parameters:
+      - name: grant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Grant Id
+      - name: x-portal-session
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Portal-Session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardChooseRequest'
       responses:
         '200':
           description: Successful Response
@@ -631,6 +693,207 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /admin/ai/sales-summary:
+    get:
+      tags:
+      - Admin
+      summary: Sales Summary
+      operationId: sales_summary_admin_ai_sales_summary_get
+      parameters:
+      - name: businessDate
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Businessdate
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/inventory:
+    get:
+      tags:
+      - Admin
+      summary: List Inventory
+      operationId: list_inventory_admin_inventory_get
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Admin
+      summary: Upsert Inventory
+      operationId: upsert_inventory_admin_inventory_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryUpsertRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/inventory/{item_id}/adjust:
+    post:
+      tags:
+      - Admin
+      summary: Adjust Inventory
+      operationId: adjust_inventory_admin_inventory__item_id__adjust_post
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Item Id
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryAdjustRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/inventory/scan:
+    post:
+      tags:
+      - Admin
+      summary: Scan Inventory Risk
+      operationId: scan_inventory_risk_admin_inventory_scan_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/ai/inventory:
+    get:
+      tags:
+      - Admin
+      summary: Inventory Recommendations
+      operationId: inventory_recommendations_admin_ai_inventory_get
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/ai/menu-trends:
+    get:
+      tags:
+      - Admin
+      summary: Menu Trends
+      operationId: menu_trends_admin_ai_menu_trends_get
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /admin/passes/{pass_id}/extend:
     post:
       tags:
@@ -934,6 +1197,56 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    InventoryAdjustRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        quantityDelta:
+          type: integer
+          title: Quantitydelta
+        reason:
+          type: string
+          title: Reason
+          default: ''
+      type: object
+      required:
+      - storeId
+      - quantityDelta
+      title: InventoryAdjustRequest
+    InventoryUpsertRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        productId:
+          type: string
+          title: Productid
+        quantity:
+          type: integer
+          minimum: 0.0
+          title: Quantity
+        lowStockThreshold:
+          type: integer
+          minimum: 0.0
+          title: Lowstockthreshold
+          default: 0
+        expiresOn:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Expireson
+        unit:
+          type: string
+          title: Unit
+          default: EA
+      type: object
+      required:
+      - storeId
+      - productId
+      - quantity
+      title: InventoryUpsertRequest
     OrderItemRequest:
       properties:
         productId:

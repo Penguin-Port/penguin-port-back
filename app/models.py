@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -222,6 +222,8 @@ class AIRecommendation(Base):
     type: Mapped[str] = mapped_column(String(40), default="TIME_SALE")
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     reason: Mapped[str] = mapped_column(Text)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="PENDING", index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
@@ -239,6 +241,52 @@ class Promotion(Base):
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(20), default="SCHEDULED")
+
+
+class AnalyticsHourly(Base):
+    __tablename__ = "analytics_hourly"
+    __table_args__ = (
+        UniqueConstraint("store_id", "bucket_start", name="uq_analytics_store_bucket"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_value)
+    store_id: Mapped[str] = mapped_column(ForeignKey("stores.id"), index=True)
+    bucket_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    order_count: Mapped[int] = mapped_column(Integer, default=0)
+    gross_sales: Mapped[int] = mapped_column(Integer, default=0)
+    wifi_active_count: Mapped[int] = mapped_column(Integer, default=0)
+    wifi_active_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    menu_sales: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    repeat_customer_count: Mapped[int] = mapped_column(Integer, default=0)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
+
+
+class InventoryItem(Base):
+    __tablename__ = "inventory_items"
+    __table_args__ = (
+        UniqueConstraint("store_id", "product_id", name="uq_inventory_store_product"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_value)
+    store_id: Mapped[str] = mapped_column(ForeignKey("stores.id"), index=True)
+    product_id: Mapped[str] = mapped_column(ForeignKey("products.id"), index=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    unit: Mapped[str] = mapped_column(String(20), default="EA")
+    low_stock_threshold: Mapped[int] = mapped_column(Integer, default=0)
+    expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    risk_score: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
+
+
+class InventoryEvent(Base):
+    __tablename__ = "inventory_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_value)
+    item_id: Mapped[str] = mapped_column(ForeignKey("inventory_items.id"), index=True)
+    type: Mapped[str] = mapped_column(String(24))
+    quantity_delta: Mapped[int] = mapped_column(Integer, default=0)
+    reason: Mapped[str] = mapped_column(String(240), default="")
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
 
 
 class AdminUser(Base):
