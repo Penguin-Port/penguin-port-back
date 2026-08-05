@@ -8,10 +8,21 @@ class Settings:
     jwt_secret: str = os.getenv(
         "JWT_SECRET", "local-mvp-secret-change-me-use-at-least-32-bytes"
     )
+    phone_lookup_secret: str = os.getenv(
+        "PHONE_LOOKUP_SECRET", "local-phone-lookup-secret-change-me"
+    )
     demo_key: str = os.getenv("DEMO_KEY", "demo-key")
     demo_otp_code: str = os.getenv("DEMO_OTP_CODE", "123456")
     expire_interval_seconds: int = int(os.getenv("EXPIRE_INTERVAL_SECONDS", "60"))
     access_token_minutes: int = int(os.getenv("ACCESS_TOKEN_MINUTES", "60"))
+    refresh_token_days: int = int(os.getenv("REFRESH_TOKEN_DAYS", "14"))
+    promotion_max_discount_rate: int = int(os.getenv("PROMOTION_MAX_DISCOUNT_RATE", "50"))
+    promotion_max_duration_hours: int = int(os.getenv("PROMOTION_MAX_DURATION_HOURS", "24"))
+    secure_cookies: bool = os.getenv("SECURE_COOKIES", "0") == "1"
+    phone_retention_days: int = int(os.getenv("PHONE_RETENTION_DAYS", "90"))
+    audit_retention_days: int = int(os.getenv("AUDIT_RETENTION_DAYS", "365"))
+    otp_send_window_seconds: int = int(os.getenv("OTP_SEND_WINDOW_SECONDS", "60"))
+    otp_max_sends_per_window: int = int(os.getenv("OTP_MAX_SENDS_PER_WINDOW", "3"))
 
     @property
     def sqlalchemy_database_url(self) -> str:

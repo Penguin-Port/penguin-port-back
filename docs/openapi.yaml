@@ -11,6 +11,14 @@ paths:
       summary: Create Order
       operationId: create_order_pos_orders_post
       parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
       - name: x-demo-key
         in: header
         required: true
@@ -25,6 +33,51 @@ paths:
               $ref: '#/components/schemas/PosOrderRequest'
       responses:
         '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /pos/orders/{order_id}/refund:
+    post:
+      tags:
+      - POS
+      summary: Refund Order
+      operationId: refund_order_pos_orders__order_id__refund_post
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Order Id
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Idempotency-Key
+      - name: x-demo-key
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Demo-Key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PosRefundRequest'
+      responses:
+        '200':
           description: Successful Response
           content:
             application/json:
@@ -169,6 +222,31 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /public/kiosk/upsell-hint:
+    get:
+      tags:
+      - Public
+      summary: Upsell Hint
+      operationId: upsell_hint_public_kiosk_upsell_hint_get
+      parameters:
+      - name: x-portal-session
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Portal-Session
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /public/upsell-hint:
     get:
       tags:
@@ -225,6 +303,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /public/rewards/grants/{grant_id}/choose:
+    post:
+      tags:
+      - Public
+      summary: Choose Reward
+      operationId: choose_reward_public_rewards_grants__grant_id__choose_post
+      parameters:
+      - name: grant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Grant Id
+      - name: x-portal-session
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Portal-Session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardChooseRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /public/rewards/{grant_id}/choose:
     post:
       tags:
@@ -262,6 +377,87 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /public/coupons:
+    get:
+      tags:
+      - Public
+      summary: List Coupons
+      operationId: list_coupons_public_coupons_get
+      parameters:
+      - name: x-portal-session
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Portal-Session
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /public/stores/{store_id}/privacy-notice:
+    get:
+      tags:
+      - Public
+      summary: Privacy Notice
+      operationId: privacy_notice_public_stores__store_id__privacy_notice_get
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Store Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /public/coupons/{coupon_id}/redeem:
+    post:
+      tags:
+      - Public
+      summary: Redeem Coupon
+      operationId: redeem_coupon_public_coupons__coupon_id__redeem_post
+      parameters:
+      - name: coupon_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Coupon Id
+      - name: x-portal-session
+        in: header
+        required: true
+        schema:
+          type: string
+          title: X-Portal-Session
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /admin/login:
     post:
       tags:
@@ -274,6 +470,273 @@ paths:
             schema:
               $ref: '#/components/schemas/AdminLoginRequest'
         required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/refresh:
+    post:
+      tags:
+      - Admin
+      summary: Refresh
+      operationId: refresh_admin_refresh_post
+      parameters:
+      - name: smartpass_refresh
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminRefreshRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/logout:
+    post:
+      tags:
+      - Admin
+      summary: Logout
+      operationId: logout_admin_logout_post
+      parameters:
+      - name: smartpass_refresh
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLogoutRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/me:
+    get:
+      tags:
+      - Admin
+      summary: Me
+      operationId: me_admin_me_get
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/wifi/policies:
+    get:
+      tags:
+      - Admin
+      summary: Get Wifi Policy
+      operationId: get_wifi_policy_admin_wifi_policies_get
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/wifi/policies/simulate:
+    post:
+      tags:
+      - Admin
+      summary: Simulate Wifi Policy
+      operationId: simulate_wifi_policy_admin_wifi_policies_simulate_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WifiPolicySimulationRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/wifi/policies/publish:
+    post:
+      tags:
+      - Admin
+      summary: Publish Wifi Policy
+      operationId: publish_wifi_policy_admin_wifi_policies_publish_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WifiPolicyPublishRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/rewards/tiers:
+    get:
+      tags:
+      - Admin
+      summary: List Reward Tiers
+      operationId: list_reward_tiers_admin_rewards_tiers_get
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Admin
+      summary: Upsert Reward Tier
+      operationId: upsert_reward_tier_admin_rewards_tiers_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardTierUpsertRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/audit:
+    get:
+      tags:
+      - Admin
+      summary: List Audit Logs
+      operationId: list_audit_logs_admin_audit_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -301,6 +764,207 @@ paths:
           - type: string
           - type: 'null'
           title: Storeid
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/ai/sales-summary:
+    get:
+      tags:
+      - Admin
+      summary: Sales Summary
+      operationId: sales_summary_admin_ai_sales_summary_get
+      parameters:
+      - name: businessDate
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Businessdate
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/inventory:
+    get:
+      tags:
+      - Admin
+      summary: List Inventory
+      operationId: list_inventory_admin_inventory_get
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Admin
+      summary: Upsert Inventory
+      operationId: upsert_inventory_admin_inventory_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryUpsertRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/inventory/{item_id}/adjust:
+    post:
+      tags:
+      - Admin
+      summary: Adjust Inventory
+      operationId: adjust_inventory_admin_inventory__item_id__adjust_post
+      parameters:
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Item Id
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryAdjustRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/inventory/scan:
+    post:
+      tags:
+      - Admin
+      summary: Scan Inventory Risk
+      operationId: scan_inventory_risk_admin_inventory_scan_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/ai/inventory:
+    get:
+      tags:
+      - Admin
+      summary: Inventory Recommendations
+      operationId: inventory_recommendations_admin_ai_inventory_get
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/ai/menu-trends:
+    get:
+      tags:
+      - Admin
+      summary: Menu Trends
+      operationId: menu_trends_admin_ai_menu_trends_get
+      parameters:
       - name: authorization
         in: header
         required: true
@@ -420,6 +1084,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /admin/ai/recommendations/{recommendation_id}:
+    patch:
+      tags:
+      - Admin
+      summary: Edit Recommendation
+      operationId: edit_recommendation_admin_ai_recommendations__recommendation_id__patch
+      parameters:
+      - name: recommendation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Recommendation Id
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationPatchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /admin/ai/recommendations/{recommendation_id}/accept:
     post:
       tags:
@@ -511,6 +1212,15 @@ components:
       - username
       - password
       title: AdminLoginRequest
+    AdminLogoutRequest:
+      properties:
+        refreshToken:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Refreshtoken
+      type: object
+      title: AdminLogoutRequest
     AdminPassExpireRequest:
       properties:
         storeId:
@@ -535,6 +1245,15 @@ components:
       required:
       - minutes
       title: AdminPassExtendRequest
+    AdminRefreshRequest:
+      properties:
+        refreshToken:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Refreshtoken
+      type: object
+      title: AdminRefreshRequest
     ClaimExchangeRequest:
       properties:
         orderClaim:
@@ -567,6 +1286,56 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    InventoryAdjustRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        quantityDelta:
+          type: integer
+          title: Quantitydelta
+        reason:
+          type: string
+          title: Reason
+          default: ''
+      type: object
+      required:
+      - storeId
+      - quantityDelta
+      title: InventoryAdjustRequest
+    InventoryUpsertRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        productId:
+          type: string
+          title: Productid
+        quantity:
+          type: integer
+          minimum: 0.0
+          title: Quantity
+        lowStockThreshold:
+          type: integer
+          minimum: 0.0
+          title: Lowstockthreshold
+          default: 0
+        expiresOn:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Expireson
+        unit:
+          type: string
+          title: Unit
+          default: EA
+      type: object
+      required:
+      - storeId
+      - productId
+      - quantity
+      title: InventoryUpsertRequest
     OrderItemRequest:
       properties:
         productId:
@@ -614,6 +1383,21 @@ components:
       - verificationTicket
       - phone
       title: OtpSendRequest
+    PolicyTierRequest:
+      properties:
+        minAmount:
+          type: integer
+          minimum: 0.0
+          title: Minamount
+        minutes:
+          type: integer
+          minimum: 0.0
+          title: Minutes
+      type: object
+      required:
+      - minAmount
+      - minutes
+      title: PolicyTierRequest
     PosOrderRequest:
       properties:
         storeId:
@@ -647,6 +1431,25 @@ components:
       - totalAmount
       - paidAt
       title: PosOrderRequest
+    PosRefundRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        refundAmount:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Refundamount
+        reason:
+          type: string
+          title: Reason
+          default: ''
+      type: object
+      required:
+      - storeId
+      title: PosRefundRequest
     RecommendationDecisionRequest:
       properties:
         storeId:
@@ -656,11 +1459,77 @@ components:
           type: integer
           minimum: 1.0
           title: Version
+        menuIds:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Menuids
+        discountRate:
+          anyOf:
+          - type: integer
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Discountrate
+        startsAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Startsat
+        endsAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Endsat
       type: object
       required:
       - storeId
       - version
       title: RecommendationDecisionRequest
+    RecommendationPatchRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        version:
+          type: integer
+          minimum: 1.0
+          title: Version
+        menuIds:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Menuids
+        discountRate:
+          anyOf:
+          - type: integer
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Discountrate
+        startsAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Startsat
+        endsAt:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Endsat
+      type: object
+      required:
+      - storeId
+      - version
+      title: RecommendationPatchRequest
     RecommendationRejectRequest:
       properties:
         storeId:
@@ -674,6 +1543,32 @@ components:
           default: ''
       type: object
       title: RecommendationRejectRequest
+    RewardBenefitUpsertRequest:
+      properties:
+        benefitId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Benefitid
+        benefitType:
+          type: string
+          maxLength: 40
+          minLength: 1
+          title: Benefittype
+        title:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Title
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+      type: object
+      required:
+      - benefitType
+      - title
+      title: RewardBenefitUpsertRequest
     RewardChooseRequest:
       properties:
         benefitId:
@@ -683,11 +1578,52 @@ components:
           type: string
           pattern: ^(IMMEDIATE|COUPON_7D)$
           title: Fulfillmode
+        orderId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Orderid
       type: object
       required:
       - benefitId
       - fulfillMode
       title: RewardChooseRequest
+    RewardTierUpsertRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        tierId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tierid
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Name
+        thresholdAmount:
+          type: integer
+          minimum: 0.0
+          title: Thresholdamount
+        sortOrder:
+          type: integer
+          minimum: 0.0
+          title: Sortorder
+        benefits:
+          items:
+            $ref: '#/components/schemas/RewardBenefitUpsertRequest'
+          type: array
+          maxItems: 12
+          title: Benefits
+      type: object
+      required:
+      - storeId
+      - name
+      - thresholdAmount
+      - sortOrder
+      title: RewardTierUpsertRequest
     ValidationError:
       properties:
         loc:
@@ -714,3 +1650,46 @@ components:
       - msg
       - type
       title: ValidationError
+    WifiPolicyPublishRequest:
+      properties:
+        version:
+          type: integer
+          minimum: 1.0
+          title: Version
+        baseMinutes:
+          type: integer
+          maximum: 1440.0
+          minimum: 1.0
+          title: Baseminutes
+        firstOrderTiers:
+          items:
+            $ref: '#/components/schemas/PolicyTierRequest'
+          type: array
+          maxItems: 8
+          title: Firstordertiers
+        additionalOrderTiers:
+          items:
+            $ref: '#/components/schemas/PolicyTierRequest'
+          type: array
+          maxItems: 8
+          title: Additionalordertiers
+      type: object
+      required:
+      - version
+      - baseMinutes
+      title: WifiPolicyPublishRequest
+    WifiPolicySimulationRequest:
+      properties:
+        orderType:
+          type: string
+          pattern: ^(FIRST|ADDITIONAL)$
+          title: Ordertype
+        amount:
+          type: integer
+          minimum: 0.0
+          title: Amount
+      type: object
+      required:
+      - orderType
+      - amount
+      title: WifiPolicySimulationRequest

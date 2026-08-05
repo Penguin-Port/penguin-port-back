@@ -9,6 +9,8 @@ Table stores {
   timezone varchar(64) [not null, default: "Asia/Seoul"]
   business_day_cutoff varchar(5) [not null, default: "00:00"]
   otp_skip_enabled boolean [not null, default: false]
+  policy_config jsonb [not null, default: "{}"]
+  policy_version integer [not null, default: 1]
 }
 
 Table products {
@@ -28,8 +30,13 @@ Table orders {
   store_id uuid [not null, ref: > stores.id]
   external_order_id varchar(120) [not null]
   customer_key varchar(160) [not null]
+  status varchar(20) [not null, default: "PAID"]
   phone varchar(40)
+  phone_lookup_hash varchar(64)
+  phone_last4 varchar(4)
   total_amount integer [not null]
+  refunded_amount integer [not null, default: 0]
+  wifi_minutes integer [not null, default: 0]
   business_date date [not null]
   paid_at timestamptz [not null]
   created_at timestamptz [not null]
@@ -63,6 +70,7 @@ Table otp_challenges {
   order_id uuid [not null, ref: > orders.id]
   customer_key varchar(160) [not null]
   phone varchar(40) [not null]
+  phone_lookup_hash varchar(64)
   code_hash varchar(128) [not null]
   status varchar(20) [not null, default: "PENDING"]
   attempts integer [not null, default: 0]
@@ -106,6 +114,7 @@ Table daily_spend_balances {
   business_date date [not null]
   customer_key varchar(160) [not null]
   total_amount integer [not null, default: 0]
+  version integer [not null, default: 1]
 
   indexes {
     (store_id, business_date, customer_key) [unique]
@@ -141,6 +150,7 @@ Table reward_grants {
   status varchar(24) [not null, default: "AWAITING_CHOICE"]
   chosen_benefit_id uuid [ref: > reward_benefits.id]
   fulfill_mode varchar(20)
+  fulfilled_at timestamptz
   created_at timestamptz [not null]
 
   indexes {
@@ -157,6 +167,21 @@ Table coupons {
   benefit_snapshot jsonb [not null]
   expires_at timestamptz [not null]
   redeemed_at timestamptz
+  created_at timestamptz [not null]
+}
+
+Table reward_redemptions {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  grant_id uuid [not null, unique, ref: - reward_grants.id]
+  benefit_id uuid [not null, ref: > reward_benefits.id]
+  customer_key varchar(160) [not null]
+  business_date date [not null]
+  status varchar(20) [not null, default: "AVAILABLE"]
+  order_id uuid [ref: > orders.id]
+  benefit_snapshot jsonb [not null]
+  created_at timestamptz [not null]
+  consumed_at timestamptz
 }
 
 Table ai_recommendations {
@@ -165,6 +190,8 @@ Table ai_recommendations {
   type varchar(40) [not null, default: "TIME_SALE"]
   payload jsonb [not null]
   reason text [not null]
+  evidence jsonb [not null, default: "{}"]
+  confidence float
   status varchar(20) [not null, default: "PENDING"]
   version integer [not null, default: 1]
   created_at timestamptz [not null]
@@ -182,9 +209,88 @@ Table promotions {
   status varchar(20) [not null, default: "SCHEDULED"]
 }
 
+Table analytics_hourly {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  bucket_start timestamptz [not null]
+  order_count integer [not null, default: 0]
+  gross_sales integer [not null, default: 0]
+  wifi_active_count integer [not null, default: 0]
+  wifi_active_minutes integer [not null, default: 0]
+  menu_sales jsonb [not null, default: "{}"]
+  repeat_customer_count integer [not null, default: 0]
+  generated_at timestamptz [not null]
+
+  indexes {
+    (store_id, bucket_start) [unique]
+  }
+}
+
+Table inventory_items {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  product_id uuid [not null, ref: > products.id]
+  quantity integer [not null, default: 0]
+  unit varchar(20) [not null, default: "EA"]
+  low_stock_threshold integer [not null, default: 0]
+  expires_on date
+  risk_score integer [not null, default: 0]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (store_id, product_id) [unique]
+  }
+}
+
+Table inventory_events {
+  id uuid [pk]
+  item_id uuid [not null, ref: > inventory_items.id]
+  type varchar(24) [not null]
+  quantity_delta integer [not null, default: 0]
+  reason varchar(240) [not null]
+  occurred_at timestamptz [not null]
+}
+
 Table admin_users {
   id uuid [pk]
   store_id uuid [not null, ref: > stores.id]
   username varchar(120) [not null, unique]
   password_hash varchar(256) [not null]
+  role varchar(20) [not null, default: "OWNER"]
+}
+
+Table refresh_token_sessions {
+  id uuid [pk]
+  admin_id uuid [not null, ref: > admin_users.id]
+  token_hash varchar(64) [not null, unique]
+  expires_at timestamptz [not null]
+  revoked_at timestamptz
+  replaced_by uuid
+  created_at timestamptz [not null]
+}
+
+Table idempotency_records {
+  id uuid [pk]
+  scope varchar(180) [not null]
+  key varchar(200) [not null]
+  request_hash varchar(64) [not null]
+  status_code integer [not null, default: 200]
+  response_json jsonb [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    (scope, key) [unique]
+  }
+}
+
+Table audit_logs {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  actor_type varchar(24) [not null]
+  actor_id uuid
+  action varchar(80) [not null]
+  resource_type varchar(40) [not null]
+  resource_id uuid
+  metadata jsonb [not null, default: "{}"]
+  created_at timestamptz [not null]
 }

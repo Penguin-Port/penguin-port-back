@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -24,6 +24,12 @@ class PosOrderRequest(BaseModel):
     paidAt: datetime
 
 
+class PosRefundRequest(BaseModel):
+    storeId: str
+    refundAmount: int | None = Field(default=None, ge=1)
+    reason: str = ""
+
+
 class ClaimExchangeRequest(BaseModel):
     orderClaim: str
 
@@ -41,11 +47,20 @@ class OtpConfirmRequest(BaseModel):
 class RewardChooseRequest(BaseModel):
     benefitId: str
     fulfillMode: str = Field(pattern=r"^(IMMEDIATE|COUPON_7D)$")
+    orderId: str | None = None
 
 
 class AdminLoginRequest(BaseModel):
     username: str
     password: str
+
+
+class AdminRefreshRequest(BaseModel):
+    refreshToken: str | None = None
+
+
+class AdminLogoutRequest(BaseModel):
+    refreshToken: str | None = None
 
 
 class AdminPassExtendRequest(BaseModel):
@@ -60,11 +75,67 @@ class AdminPassExpireRequest(BaseModel):
 class RecommendationDecisionRequest(BaseModel):
     storeId: str
     version: int = Field(ge=1)
+    menuIds: list[str] | None = None
+    discountRate: int | None = Field(default=None, ge=0, le=100)
+    startsAt: datetime | None = None
+    endsAt: datetime | None = None
+
+
+class RecommendationPatchRequest(RecommendationDecisionRequest):
+    pass
 
 
 class RecommendationRejectRequest(BaseModel):
     storeId: str | None = None
     reason: str = ""
+
+
+class PolicyTierRequest(BaseModel):
+    minAmount: int = Field(ge=0)
+    minutes: int = Field(ge=0)
+
+
+class WifiPolicyPublishRequest(BaseModel):
+    version: int = Field(ge=1)
+    baseMinutes: int = Field(ge=1, le=1440)
+    firstOrderTiers: list[PolicyTierRequest] = Field(default_factory=list, max_length=8)
+    additionalOrderTiers: list[PolicyTierRequest] = Field(default_factory=list, max_length=8)
+
+
+class WifiPolicySimulationRequest(BaseModel):
+    orderType: str = Field(pattern=r"^(FIRST|ADDITIONAL)$")
+    amount: int = Field(ge=0)
+
+
+class InventoryUpsertRequest(BaseModel):
+    storeId: str
+    productId: str
+    quantity: int = Field(ge=0)
+    lowStockThreshold: int = Field(default=0, ge=0)
+    expiresOn: date | None = None
+    unit: str = "EA"
+
+
+class InventoryAdjustRequest(BaseModel):
+    storeId: str
+    quantityDelta: int
+    reason: str = ""
+
+
+class RewardBenefitUpsertRequest(BaseModel):
+    benefitId: str | None = None
+    benefitType: str = Field(min_length=1, max_length=40)
+    title: str = Field(min_length=1, max_length=120)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class RewardTierUpsertRequest(BaseModel):
+    storeId: str
+    tierId: str | None = None
+    name: str = Field(min_length=1, max_length=80)
+    thresholdAmount: int = Field(ge=0)
+    sortOrder: int = Field(ge=0)
+    benefits: list[RewardBenefitUpsertRequest] = Field(default_factory=list, max_length=12)
 
 
 class SuccessEnvelope(BaseModel):

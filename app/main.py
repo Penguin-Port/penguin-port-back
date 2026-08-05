@@ -1,18 +1,23 @@
 import asyncio
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.db import init_db, session_scope
 from app.routers import admin, pos, public
 from app.services.wifi import expire_due_passes
+from app.services.privacy import purge_sensitive_data
 
 
 async def _expire_loop():
     while True:
         with session_scope() as db:
             expire_due_passes(db)
+            purge_sensitive_data(db)
         await asyncio.sleep(settings.expire_interval_seconds)
 
 
@@ -36,6 +41,57 @@ app = FastAPI(
     description="PDF 축소 명세의 FastAPI 단일 백엔드입니다.",
     lifespan=lifespan,
 )
+
+
+def _problem_code(status: int, detail) -> str:
+    if isinstance(detail, dict) and detail.get("code"):
+        return str(detail["code"])
+    if isinstance(detail, str):
+        normalized = "".join(
+            character if character.isalnum() else "_" for character in detail.upper()
+        ).strip("_")
+        if normalized and len(normalized) <= 80 and normalized.count("_") >= 1:
+            return normalized
+    return {
+        400: "BAD_REQUEST",
+        401: "UNAUTHORIZED",
+        403: "FORBIDDEN",
+        404: "NOT_FOUND",
+        409: "CONFLICT",
+        410: "GONE",
+        422: "DOMAIN_RULE_VIOLATION",
+        429: "RATE_LIMITED",
+    }.get(status, "INTERNAL_SERVER_ERROR")
+
+
+def _problem_response(request: Request, *, status: int, detail, headers=None) -> JSONResponse:
+    code = _problem_code(status, detail)
+    message = detail.get("detail", "요청을 처리할 수 없습니다.") if isinstance(detail, dict) else detail
+    request_id = request.headers.get("X-Request-Id", f"req_{uuid4().hex}")
+    body = {
+        "type": f"https://api.example.com/problems/{code.lower()}",
+        "title": code.replace("_", " ").title(),
+        "status": status,
+        "code": code,
+        "detail": message,
+        "retryable": status == 429 or status >= 500,
+        "requestId": request_id,
+    }
+    return JSONResponse(status_code=status, content=body, headers=headers)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return _problem_response(request, status=exc.status_code, detail=exc.detail, headers=exc.headers)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return _problem_response(
+        request,
+        status=422,
+        detail={"code": "REQUEST_VALIDATION_ERROR", "detail": exc.errors()},
+    )
 
 for router in (pos.router, public.router, admin.router):
     app.include_router(router)
