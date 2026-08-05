@@ -13,6 +13,7 @@
 - AI: `ai_recommendations`, `promotions`
 - 분석: `analytics_hourly`
 - 재고: `inventory_items`, `inventory_events`
+- 운영: `audit_logs`, `refresh_token_sessions`, `idempotency_records`
 
 `scheduled_actions` 테이블은 PDF에서 생략 가능하므로 두지 않았습니다. FastAPI lifespan 만료 루프가
 `wifi_passes.expires_at`을 직접 스캔합니다.

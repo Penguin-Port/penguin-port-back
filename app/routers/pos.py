@@ -29,6 +29,7 @@ from app.schemas import PosOrderRequest, PosRefundRequest
 from app.services.policy import additional_order_minutes, expiry_after, first_order_minutes
 from app.services.rewards import evaluate_grants
 from app.security import customer_key, phone_last4, phone_lookup_hash
+from app.services.audit import record_audit
 from app.services.wifi import pass_data
 from app.time import business_date, db_now
 
@@ -344,5 +345,14 @@ def refund_order(
                 response_json=response,
             )
         )
+    record_audit(
+        db,
+        store_id=order.store_id,
+        action="ORDER_REFUNDED",
+        resource_type="Order",
+        resource_id=order.id,
+        actor_type="POS_CLIENT",
+        metadata={"refundAmount": refund_amount, "reason": payload.reason},
+    )
     db.commit()
     return response

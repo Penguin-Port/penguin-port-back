@@ -660,6 +660,95 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /admin/rewards/tiers:
+    get:
+      tags:
+      - Admin
+      summary: List Reward Tiers
+      operationId: list_reward_tiers_admin_rewards_tiers_get
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Admin
+      summary: Upsert Reward Tier
+      operationId: upsert_reward_tier_admin_rewards_tiers_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RewardTierUpsertRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/audit:
+    get:
+      tags:
+      - Admin
+      summary: List Audit Logs
+      operationId: list_audit_logs_admin_audit_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          minimum: 1
+          default: 100
+          title: Limit
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /admin/passes/active:
     get:
       tags:
@@ -1454,6 +1543,32 @@ components:
           default: ''
       type: object
       title: RecommendationRejectRequest
+    RewardBenefitUpsertRequest:
+      properties:
+        benefitId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Benefitid
+        benefitType:
+          type: string
+          maxLength: 40
+          minLength: 1
+          title: Benefittype
+        title:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Title
+        payload:
+          additionalProperties: true
+          type: object
+          title: Payload
+      type: object
+      required:
+      - benefitType
+      - title
+      title: RewardBenefitUpsertRequest
     RewardChooseRequest:
       properties:
         benefitId:
@@ -1473,6 +1588,42 @@ components:
       - benefitId
       - fulfillMode
       title: RewardChooseRequest
+    RewardTierUpsertRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        tierId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Tierid
+        name:
+          type: string
+          maxLength: 80
+          minLength: 1
+          title: Name
+        thresholdAmount:
+          type: integer
+          minimum: 0.0
+          title: Thresholdamount
+        sortOrder:
+          type: integer
+          minimum: 0.0
+          title: Sortorder
+        benefits:
+          items:
+            $ref: '#/components/schemas/RewardBenefitUpsertRequest'
+          type: array
+          maxItems: 12
+          title: Benefits
+      type: object
+      required:
+      - storeId
+      - name
+      - thresholdAmount
+      - sortOrder
+      title: RewardTierUpsertRequest
     ValidationError:
       properties:
         loc:

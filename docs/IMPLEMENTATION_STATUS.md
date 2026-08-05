@@ -33,6 +33,9 @@
 | AI 매출 요약 | `/admin/ai/sales-summary` + `analytics_hourly` 저장 |
 | 재고 위험·프로모션 | `inventory_items/events` + 규칙 기반 `INVENTORY_PROMOTION` |
 | 신메뉴 추천 폴백 | `/admin/ai/menu-trends` |
+| 리워드 티어·혜택 관리 | `/admin/rewards/tiers` 조회·게시 |
+| 감사 로그·보존 정리 | `/admin/audit`, lifespan 민감정보/감사 로그 purge |
+| OTP Rate Limit | 주문 단위 발송 윈도우 제한 |
 | 60초 만료 루프 | FastAPI lifespan `expire_due_passes` |
 | 별도 Worker/Redis/Celery | 사용하지 않음 |
 | Docker Compose 배포 | 사용하지 않음 |

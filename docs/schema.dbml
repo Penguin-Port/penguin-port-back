@@ -282,3 +282,15 @@ Table idempotency_records {
     (scope, key) [unique]
   }
 }
+
+Table audit_logs {
+  id uuid [pk]
+  store_id uuid [not null, ref: > stores.id]
+  actor_type varchar(24) [not null]
+  actor_id uuid
+  action varchar(80) [not null]
+  resource_type varchar(40) [not null]
+  resource_id uuid
+  metadata jsonb [not null, default: "{}"]
+  created_at timestamptz [not null]
+}

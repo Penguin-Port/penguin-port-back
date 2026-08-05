@@ -312,6 +312,20 @@ class RefreshTokenSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
 
 
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_value)
+    store_id: Mapped[str] = mapped_column(ForeignKey("stores.id"), index=True)
+    actor_type: Mapped[str] = mapped_column(String(24))
+    actor_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    action: Mapped[str] = mapped_column(String(80))
+    resource_type: Mapped[str] = mapped_column(String(40))
+    resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
+
+
 class IdempotencyRecord(Base):
     __tablename__ = "idempotency_records"
     __table_args__ = (

@@ -21,6 +21,8 @@ class Settings:
     secure_cookies: bool = os.getenv("SECURE_COOKIES", "0") == "1"
     phone_retention_days: int = int(os.getenv("PHONE_RETENTION_DAYS", "90"))
     audit_retention_days: int = int(os.getenv("AUDIT_RETENTION_DAYS", "365"))
+    otp_send_window_seconds: int = int(os.getenv("OTP_SEND_WINDOW_SECONDS", "60"))
+    otp_max_sends_per_window: int = int(os.getenv("OTP_MAX_SENDS_PER_WINDOW", "3"))
 
     @property
     def sqlalchemy_database_url(self) -> str:

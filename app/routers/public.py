@@ -3,7 +3,7 @@ import hmac
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import decode_token, issue_token, require_portal_session
@@ -33,6 +33,7 @@ from app.schemas import (
     RewardChooseRequest,
 )
 from app.services.demo_network import authorize
+from app.services.audit import record_audit
 from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.rewards import choose_benefit
 from app.services.wifi import expire_due_passes, pass_data
@@ -168,6 +169,15 @@ def send_otp(payload: OtpSendRequest, db: Session = Depends(get_db)):
     customer_key = f"phone:{lookup_hash}"
     if order.phone_lookup_hash != lookup_hash and customer_key != order.customer_key:
         raise HTTPException(status_code=422, detail="주문에 연결된 전화번호와 일치하지 않습니다.")
+    now = db_now()
+    recent_count = db.scalar(
+        select(func.count(OtpChallenge.id)).where(
+            OtpChallenge.order_id == order.id,
+            OtpChallenge.created_at >= now - timedelta(seconds=settings.otp_send_window_seconds),
+        )
+    ) or 0
+    if recent_count >= settings.otp_max_sends_per_window:
+        raise HTTPException(status_code=429, detail="OTP 발송 요청이 너무 많습니다.")
     challenge = OtpChallenge(
         store_id=order.store_id,
         order_id=order.id,
@@ -175,7 +185,7 @@ def send_otp(payload: OtpSendRequest, db: Session = Depends(get_db)):
         phone=masked_phone(payload.phone),
         phone_lookup_hash=lookup_hash,
         code_hash="pending",
-        expires_at=db_now() + timedelta(minutes=3),
+        expires_at=now + timedelta(minutes=3),
     )
     db.add(challenge)
     db.flush()
@@ -471,6 +481,16 @@ def choose_reward(
             "status": redemption.status,
             "orderId": redemption.order_id,
         }
+    db.commit()
+    record_audit(
+        db,
+        store_id=grant.store_id,
+        action="REWARD_BENEFIT_CHOSEN",
+        resource_type="RewardGrant",
+        resource_id=grant.id,
+        actor_type="CUSTOMER",
+        metadata={"benefitId": benefit.id, "fulfillMode": grant.fulfill_mode},
+    )
     db.commit()
     return success(
         {

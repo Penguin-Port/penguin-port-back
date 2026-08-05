@@ -522,3 +522,48 @@ def test_frontend_reference_aliases_are_available(client):
         "/public/kiosk/upsell-hint", headers={"X-Portal-Session": session}
     )
     assert hint.status_code == 200
+
+
+def test_otp_send_is_rate_limited_and_reward_tiers_are_auditable(client):
+    order = create_order(client, "ORDER-OTP-RATE", phone="010-5555-0005")
+    claim = client.post(
+        "/public/order-claims/exchange",
+        json={"orderClaim": order.json()["data"]["orderClaim"]["token"]},
+    )
+    ticket = claim.json()["data"]["verificationTicket"]
+    for _ in range(3):
+        assert (
+            client.post(
+                "/public/otp/send",
+                json={"verificationTicket": ticket, "phone": "010-5555-0005"},
+            ).status_code
+            == 201
+        )
+    limited = client.post(
+        "/public/otp/send",
+        json={"verificationTicket": ticket, "phone": "010-5555-0005"},
+    )
+    assert limited.status_code == 429
+
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+    store_id, _ = ids()
+    tiers = client.get("/admin/rewards/tiers", headers=auth)
+    assert tiers.status_code == 200
+    tier = tiers.json()["data"][0]
+    updated = client.post(
+        "/admin/rewards/tiers",
+        headers=auth,
+        json={
+            "storeId": store_id,
+            "tierId": tier["tierId"],
+            "name": tier["name"],
+            "thresholdAmount": tier["thresholdAmount"],
+            "sortOrder": tier["sortOrder"],
+            "benefits": tier["benefits"],
+        },
+    )
+    assert updated.status_code == 200
+    audit = client.get("/admin/audit", headers=auth)
+    assert audit.status_code == 200
+    assert any(item["action"] == "REWARD_TIER_UPDATED" for item in audit.json()["data"])

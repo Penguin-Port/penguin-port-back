@@ -146,6 +146,9 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | POST | `/admin/inventory/scan` | 위험 스캔·프로모션 추천 생성 |
 | GET | `/admin/ai/inventory` | 재고 프로모션 추천 조회 |
 | GET | `/admin/ai/menu-trends` | 신메뉴 폴백 추천 카드 |
+| GET | `/admin/rewards/tiers` | 리워드 티어·혜택 조회 |
+| POST | `/admin/rewards/tiers` | 리워드 티어·혜택 게시 |
+| GET | `/admin/audit` | 매장 감사 로그 조회 |
 | PATCH | `/admin/ai/recommendations/{id}` | 추천 시간·메뉴·할인율 수정 |
 | POST | `/admin/ai/recommendations/{id}/accept` | 추천 승인·프로모션 생성 |
 | POST | `/admin/ai/recommendations/{id}/reject` | 추천 거절 |
@@ -205,6 +208,7 @@ curl -X POST http://127.0.0.1:8000/public/otp/confirm \
 - 부분/전액 환불은 실제 환불 금액만 당일 누적에서 차감하고, 아직 사용하지 않은 하위 티어 리워드·쿠폰은 회수합니다.
 - 모든 오류는 `type`, `title`, `status`, `code`, `detail`, `retryable`, `requestId` Problem JSON으로 반환합니다.
 - 매출 요약·재고 위험·신메뉴 카드는 규칙 기반 폴백으로 동작하며, 외부 LLM/SNS 수집은 MVP에서 호출하지 않습니다.
+- OTP는 주문 단위 발송 횟수를 제한하고, 보존기간이 지난 OTP/데모 메시지/전화 lookup 정보와 감사 로그를 lifespan 정리 루프에서 폐기합니다.
 
 ## 테스트
 

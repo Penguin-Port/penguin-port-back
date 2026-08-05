@@ -10,12 +10,14 @@ from app.config import settings
 from app.db import init_db, session_scope
 from app.routers import admin, pos, public
 from app.services.wifi import expire_due_passes
+from app.services.privacy import purge_sensitive_data
 
 
 async def _expire_loop():
     while True:
         with session_scope() as db:
             expire_due_passes(db)
+            purge_sensitive_data(db)
         await asyncio.sleep(settings.expire_interval_seconds)
 
 

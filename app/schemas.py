@@ -122,6 +122,22 @@ class InventoryAdjustRequest(BaseModel):
     reason: str = ""
 
 
+class RewardBenefitUpsertRequest(BaseModel):
+    benefitId: str | None = None
+    benefitType: str = Field(min_length=1, max_length=40)
+    title: str = Field(min_length=1, max_length=120)
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class RewardTierUpsertRequest(BaseModel):
+    storeId: str
+    tierId: str | None = None
+    name: str = Field(min_length=1, max_length=80)
+    thresholdAmount: int = Field(ge=0)
+    sortOrder: int = Field(ge=0)
+    benefits: list[RewardBenefitUpsertRequest] = Field(default_factory=list, max_length=12)
+
+
 class SuccessEnvelope(BaseModel):
     model_config = ConfigDict(extra="allow")
 

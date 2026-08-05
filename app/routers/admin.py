@@ -11,11 +11,14 @@ from app.http import success
 from app.models import (
     AdminUser,
     AIRecommendation,
+    AuditLog,
     InventoryItem,
     InventoryEvent,
     Product,
     Promotion,
     RefreshTokenSession,
+    RewardBenefit,
+    RewardTier,
     Store,
     WiFiPass,
 )
@@ -32,11 +35,13 @@ from app.schemas import (
     WifiPolicySimulationRequest,
     InventoryAdjustRequest,
     InventoryUpsertRequest,
+    RewardTierUpsertRequest,
 )
 from app.services.analytics import (
     get_or_create_sales_recommendation,
     sales_summary as build_sales_summary,
 )
+from app.services.audit import record_audit
 from app.services.demo_network import revoke
 from app.services.inventory import calculate_risk_score, inventory_data, scan_inventory
 from app.services.policy import additional_order_minutes, first_order_minutes
@@ -283,8 +288,140 @@ def publish_wifi_policy(
         raise HTTPException(status_code=409, detail="Wi-Fi 정책 버전이 충돌했습니다.")
     store.policy_config = _validate_policy(payload)
     store.policy_version += 1
+    record_audit(
+        db,
+        store_id=store.id,
+        action="WIFI_POLICY_PUBLISHED",
+        resource_type="Store",
+        resource_id=store.id,
+        actor_type="ADMIN",
+        actor_id=claims.get("adminId"),
+        metadata={"version": store.policy_version},
+    )
     db.commit()
     return success(_policy_data(store))
+
+
+def _reward_tier_data(db: Session, tier: RewardTier) -> dict:
+    benefits = db.scalars(
+        select(RewardBenefit)
+        .where(RewardBenefit.tier_id == tier.id)
+        .order_by(RewardBenefit.id)
+    ).all()
+    return {
+        "tierId": tier.id,
+        "name": tier.name,
+        "thresholdAmount": tier.threshold_amount,
+        "sortOrder": tier.sort_order,
+        "benefits": [
+            {
+                "benefitId": benefit.id,
+                "benefitType": benefit.benefit_type,
+                "title": benefit.title,
+                "payload": benefit.payload,
+            }
+            for benefit in benefits
+        ],
+    }
+
+
+@router.get("/admin/rewards/tiers")
+def list_reward_tiers(
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    tiers = db.scalars(
+        select(RewardTier)
+        .where(RewardTier.store_id == claims["storeId"])
+        .order_by(RewardTier.sort_order, RewardTier.threshold_amount)
+    ).all()
+    return success([_reward_tier_data(db, tier) for tier in tiers])
+
+
+@router.post("/admin/rewards/tiers")
+def upsert_reward_tier(
+    payload: RewardTierUpsertRequest,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _require_write_role(db, claims)
+    if payload.storeId != claims["storeId"]:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    tier = db.get(RewardTier, payload.tierId) if payload.tierId else None
+    if tier is not None and tier.store_id != claims["storeId"]:
+        raise HTTPException(status_code=404, detail="리워드 티어를 찾을 수 없습니다.")
+    conflict = db.scalar(
+        select(RewardTier).where(
+            RewardTier.store_id == claims["storeId"],
+            RewardTier.threshold_amount == payload.thresholdAmount,
+        )
+    )
+    if conflict is not None and (tier is None or conflict.id != tier.id):
+        raise HTTPException(status_code=409, detail="같은 매장에 동일한 리워드 금액 구간이 있습니다.")
+    if tier is None:
+        tier = RewardTier(
+            store_id=claims["storeId"],
+            name=payload.name,
+            threshold_amount=payload.thresholdAmount,
+            sort_order=payload.sortOrder,
+        )
+        db.add(tier)
+        db.flush()
+    else:
+        tier.name = payload.name
+        tier.threshold_amount = payload.thresholdAmount
+        tier.sort_order = payload.sortOrder
+    for item in payload.benefits:
+        benefit = db.get(RewardBenefit, item.benefitId) if item.benefitId else None
+        if benefit is not None and benefit.tier_id != tier.id:
+            raise HTTPException(status_code=404, detail="리워드 혜택을 찾을 수 없습니다.")
+        if benefit is None:
+            benefit = RewardBenefit(tier_id=tier.id)
+            db.add(benefit)
+        benefit.benefit_type = item.benefitType
+        benefit.title = item.title
+        benefit.payload = item.payload
+    record_audit(
+        db,
+        store_id=tier.store_id,
+        action="REWARD_TIER_UPDATED",
+        resource_type="RewardTier",
+        resource_id=tier.id,
+        actor_type="ADMIN",
+        actor_id=claims.get("adminId"),
+        metadata={"thresholdAmount": tier.threshold_amount},
+    )
+    db.commit()
+    return success(_reward_tier_data(db, tier))
+
+
+@router.get("/admin/audit")
+def list_audit_logs(
+    limit: int = Query(default=100, ge=1, le=200),
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    logs = db.scalars(
+        select(AuditLog)
+        .where(AuditLog.store_id == claims["storeId"])
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+    ).all()
+    return success(
+        [
+            {
+                "auditId": log.id,
+                "action": log.action,
+                "resourceType": log.resource_type,
+                "resourceId": log.resource_id,
+                "actorType": log.actor_type,
+                "actorId": log.actor_id,
+                "metadata": log.metadata_json,
+                "createdAt": aware(log.created_at).isoformat() if log.created_at else None,
+            }
+            for log in logs
+        ]
+    )
 
 
 @router.get("/admin/passes/active")
@@ -508,6 +645,16 @@ def extend_pass(
     wifi_pass.version += 1
     if wifi_pass.status == "EXPIRED":
         wifi_pass.status = "ACTIVE"
+    record_audit(
+        db,
+        store_id=wifi_pass.store_id,
+        action="WIFI_PASS_EXTENDED",
+        resource_type="WiFiPass",
+        resource_id=wifi_pass.id,
+        actor_type="ADMIN",
+        actor_id=claims.get("adminId"),
+        metadata={"minutes": payload.minutes, "version": wifi_pass.version},
+    )
     db.commit()
     return success(pass_data(wifi_pass))
 
@@ -533,6 +680,16 @@ def expire_pass(
         wifi_pass.status = "EXPIRED"
         wifi_pass.network_reference = None
         wifi_pass.version += 1
+        record_audit(
+            db,
+            store_id=wifi_pass.store_id,
+            action="WIFI_PASS_EXPIRED",
+            resource_type="WiFiPass",
+            resource_id=wifi_pass.id,
+            actor_type="ADMIN",
+            actor_id=claims.get("adminId"),
+            metadata={"version": wifi_pass.version},
+        )
         db.commit()
     return success(pass_data(wifi_pass))
 
@@ -637,6 +794,16 @@ def edit_recommendation(
     recommendation.payload = updated
     recommendation.status = "EDITED"
     recommendation.version += 1
+    record_audit(
+        db,
+        store_id=recommendation.store_id,
+        action="AI_RECOMMENDATION_EDITED",
+        resource_type="AIRecommendation",
+        resource_id=recommendation.id,
+        actor_type="ADMIN",
+        actor_id=claims.get("adminId"),
+        metadata={"version": recommendation.version},
+    )
     db.commit()
     return success(
         {
@@ -679,6 +846,16 @@ def accept_recommendation(
     recommendation.version += 1
     recommendation.decided_at = db_now()
     db.add(promotion)
+    record_audit(
+        db,
+        store_id=recommendation.store_id,
+        action="AI_RECOMMENDATION_ACCEPTED",
+        resource_type="AIRecommendation",
+        resource_id=recommendation.id,
+        actor_type="ADMIN",
+        actor_id=claims.get("adminId"),
+        metadata={"promotionTitle": promotion.title},
+    )
     db.commit()
     return success(
         {
@@ -712,6 +889,16 @@ def reject_recommendation(
     recommendation.decided_at = db_now()
     if payload and payload.reason:
         recommendation.payload = {**recommendation.payload, "rejectionReason": payload.reason}
+    record_audit(
+        db,
+        store_id=recommendation.store_id,
+        action="AI_RECOMMENDATION_REJECTED",
+        resource_type="AIRecommendation",
+        resource_id=recommendation.id,
+        actor_type="ADMIN",
+        actor_id=claims.get("adminId"),
+        metadata={"reasonProvided": bool(payload and payload.reason)},
+    )
     db.commit()
     return success(
         {
