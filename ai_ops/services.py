@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, timezone as datetime_timezone
 from decimal import Decimal
 
 from django.db import transaction
@@ -10,6 +10,10 @@ from django.utils.dateparse import parse_datetime
 from ai_ops.models import AIRecommendation, AnalyticsHourly, Promotion
 from operations.services import emit_event
 from orders.models import Order
+from catalog.models import Product
+from integrations.providers import DemoTrendProvider, ProviderError, get_trend_provider
+from ai_ops.providers import get_ai_provider
+from wifi.models import WiFiPass
 
 
 @transaction.atomic
@@ -105,6 +109,40 @@ def aggregate_hourly_sales(*, store, start=None, end=None):
     return results
 
 
+def _build_ai_features(*, store, buckets):
+    now = timezone.now()
+    products = list(
+        Product.objects.filter(store=store, is_active=True).order_by("name", "id")
+    )
+    active_passes = WiFiPass.objects.filter(
+        store=store,
+        status__in=[WiFiPass.Status.ACTIVE, WiFiPass.Status.EXPIRING_SOON],
+    )
+    return {
+        "businessDate": now.astimezone().date().isoformat(),
+        "timezone": store.timezone,
+        "nowUtc": now.astimezone(datetime_timezone.utc).isoformat(),
+        "totalSales": sum(bucket.gross_sales for bucket in buckets),
+        "totalOrders": sum(bucket.order_count for bucket in buckets),
+        "repeatCustomerCount": 0,
+        "wifi": {"activeCount": active_passes.count(), "activeMinutes": 0},
+        "hourly": [
+            {
+                "bucketStart": bucket.bucket_start.astimezone(datetime_timezone.utc).isoformat(),
+                "localHour": bucket.bucket_start.astimezone().hour,
+                "orderCount": bucket.order_count,
+                "grossSales": bucket.gross_sales,
+            }
+            for bucket in buckets
+        ],
+        "topItems": [],
+        "catalog": [
+            {"menuId": str(product.id), "name": product.name, "price": product.price}
+            for product in products
+        ],
+    }
+
+
 def generate_sales_summary(*, store):
     buckets = list(
         AnalyticsHourly.objects.filter(store=store)
@@ -127,6 +165,32 @@ def generate_sales_summary(*, store):
     else:
         quiet = None
         summary = "분석할 주문 데이터가 아직 없습니다."
+    features = _build_ai_features(store=store, buckets=buckets)
+    provider = get_ai_provider()
+    if hasattr(provider, "generate_sales_summary"):
+        try:
+            candidate = provider.generate_sales_summary(features)
+            candidate_summary = candidate.payload.get("summary")
+            if isinstance(candidate_summary, str) and candidate_summary.strip():
+                return AIRecommendation.objects.create(
+                    store=store,
+                    type=AIRecommendation.Type.SALES_SUMMARY,
+                    payload={
+                        "summary": candidate_summary.strip(),
+                        "source": candidate.source,
+                        **({"model": candidate.model} if candidate.model else {}),
+                    },
+                    reason=candidate.reason,
+                    evidence={
+                        "provider": candidate.source,
+                        "totalSales": features["totalSales"],
+                        "totalOrders": features["totalOrders"],
+                        "quietBucket": quiet.bucket_start.isoformat() if quiet else None,
+                    },
+                    confidence=Decimal(str(max(0.0, min(1.0, candidate.confidence)))),
+                )
+        except Exception:
+            pass
     return AIRecommendation.objects.create(
         store=store,
         type=AIRecommendation.Type.SALES_SUMMARY,
@@ -157,6 +221,51 @@ def generate_time_sale_recommendation(*, store):
     if starts_at <= now:
         starts_at += timedelta(days=(now - starts_at).days + 1)
     ends_at = starts_at + timedelta(minutes=120)
+    features = _build_ai_features(store=store, buckets=buckets)
+    provider = get_ai_provider()
+    ai_result = None
+    if hasattr(provider, "generate_time_sale"):
+        try:
+            candidate = provider.generate_time_sale(features)
+            candidate_menu_ids = candidate.payload.get("menuIds") or []
+            allowed_menu_ids = {item["menuId"] for item in features["catalog"]}
+            candidate_start = parse_datetime(candidate.payload.get("startsAt", ""))
+            candidate_end = parse_datetime(candidate.payload.get("endsAt", ""))
+            if (
+                isinstance(candidate.payload.get("title"), str)
+                and candidate_menu_ids
+                and set(candidate_menu_ids).issubset(allowed_menu_ids)
+                and 1 <= int(candidate.payload.get("discountRate", 0)) <= 50
+                and candidate_start is not None
+                and candidate_end is not None
+                and timezone.is_aware(candidate_start)
+                and timezone.is_aware(candidate_end)
+                and candidate_end > candidate_start
+                and candidate_start > now
+            ):
+                ai_result = candidate
+                starts_at, ends_at = candidate_start, candidate_end
+        except Exception:
+            ai_result = None
+    if ai_result is not None:
+        payload = {
+            **ai_result.payload,
+            "source": ai_result.source,
+            **({"model": ai_result.model} if ai_result.model else {}),
+        }
+        return AIRecommendation.objects.create(
+            store=store,
+            type=AIRecommendation.Type.TIME_SALE,
+            payload=payload,
+            reason=ai_result.reason,
+            evidence={
+                "provider": ai_result.source,
+                "totalSales": features["totalSales"],
+                "totalOrders": features["totalOrders"],
+                "quietBucket": quiet.bucket_start.isoformat() if quiet else None,
+            },
+            confidence=Decimal(str(max(0.0, min(1.0, ai_result.confidence)))),
+        )
     return AIRecommendation.objects.create(
         store=store,
         type=AIRecommendation.Type.TIME_SALE,
@@ -180,17 +289,24 @@ def generate_time_sale_recommendation(*, store):
 
 
 def generate_menu_trend_fallback(*, store):
-    suggestions = ["말차 디저트", "버터떡", "시즌 과일 라떼"]
+    catalog = [
+        {"menuId": str(item.id), "name": item.name, "price": item.price}
+        for item in Product.objects.filter(store=store, is_active=True)
+    ]
+    try:
+        suggestions = get_trend_provider().search(catalog=catalog)
+    except ProviderError:
+        suggestions = DemoTrendProvider().search(catalog=catalog)
     return [
         AIRecommendation.objects.create(
             store=store,
             type=AIRecommendation.Type.MENU_TREND,
-            payload={"menuName": name, "source": "FALLBACK_TEMPLATE"},
-            reason="외부 트렌드 API 미연결 시 사용하는 인기 카테고리 템플릿입니다.",
-            evidence={"source": "curated_fallback"},
-            confidence=Decimal("0.500"),
+            payload={"menuName": item.name, "source": item.source},
+            reason=item.reason,
+            evidence={"source": item.source, "catalogSize": len(catalog)},
+            confidence=Decimal(str(item.score)),
         )
-        for name in suggestions
+        for item in suggestions
     ]
 
 
