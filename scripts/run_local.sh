@@ -13,7 +13,13 @@ fi
 
 source .venv/bin/activate
 
-if ! python3 -c "import fastapi, sqlalchemy, alembic, jwt" >/dev/null 2>&1; then
+if [[ -f ".env" ]]; then
+  set -a
+  source .env
+  set +a
+fi
+
+if ! python3 -c "import fastapi, sqlalchemy, alembic, jwt, openai" >/dev/null 2>&1; then
   echo "의존성이 없어 requirements.txt를 설치합니다."
   python3 -m pip install -r requirements.txt
 fi
@@ -23,6 +29,8 @@ export JWT_SECRET="${JWT_SECRET:-local-test-secret-change-this}"
 export DEMO_KEY="${DEMO_KEY:-demo-key}"
 export DEMO_OTP_CODE="${DEMO_OTP_CODE:-123456}"
 export EXPIRE_INTERVAL_SECONDS="${EXPIRE_INTERVAL_SECONDS:-60}"
+export OPENAI_MODEL="${OPENAI_MODEL:-gpt-5-mini}"
+export OPENAI_TIMEOUT_SECONDS="${OPENAI_TIMEOUT_SECONDS:-20}"
 
 # 기본 로컬 DB는 매번 깨끗하게 시작합니다.
 # RESET_DB=0 으로 실행하면 기존 데이터를 유지합니다.

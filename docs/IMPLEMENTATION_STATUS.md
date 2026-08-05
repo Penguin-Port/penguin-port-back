@@ -28,6 +28,7 @@
 | Admin 활성 목록·연장·종료 | `/admin/passes/*` |
 | Wi-Fi 정책 | `/admin/wifi/policies` 조회·simulate·publish + 버전 충돌 |
 | AI 추천 1건 승인·거절 | `/admin/ai/recommendations/*` |
+| 실제 OpenAI 추천 생성 | `POST /admin/ai/recommendations/generate` + Responses API Structured Outputs + 규칙 fallback |
 | AI 추천 수정·검증 | `PATCH` 후 할인율·메뉴·시간·Promotion 생성 검증 |
 | 공통 오류 규격 | Problem JSON + requestId 예외 핸들러 |
 | AI 매출 요약 | `/admin/ai/sales-summary` + `analytics_hourly` 저장 |

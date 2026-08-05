@@ -1084,6 +1084,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /admin/ai/recommendations/generate:
+    post:
+      tags:
+      - Admin
+      summary: Generate Recommendations
+      operationId: generate_recommendations_admin_ai_recommendations_generate_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationGenerateRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /admin/ai/recommendations/{recommendation_id}:
     patch:
       tags:
@@ -1490,6 +1521,26 @@ components:
       - storeId
       - version
       title: RecommendationDecisionRequest
+    RecommendationGenerateRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        type:
+          type: string
+          pattern: ^(TIME_SALE|SALES_SUMMARY|INVENTORY_PROMOTION|MENU_TREND)$
+          title: Type
+          default: TIME_SALE
+        businessDate:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Businessdate
+      type: object
+      required:
+      - storeId
+      title: RecommendationGenerateRequest
     RecommendationPatchRequest:
       properties:
         storeId:

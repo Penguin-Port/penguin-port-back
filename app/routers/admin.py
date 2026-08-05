@@ -29,6 +29,7 @@ from app.schemas import (
     AdminPassExtendRequest,
     AdminRefreshRequest,
     RecommendationDecisionRequest,
+    RecommendationGenerateRequest,
     RecommendationPatchRequest,
     RecommendationRejectRequest,
     WifiPolicyPublishRequest,
@@ -45,6 +46,11 @@ from app.services.audit import record_audit
 from app.services.demo_network import revoke
 from app.services.inventory import calculate_risk_score, inventory_data, scan_inventory
 from app.services.policy import additional_order_minutes, first_order_minutes
+from app.services.recommendations import (
+    generate_menu_trend_recommendations,
+    generate_sales_summary_recommendation,
+    generate_time_sale_recommendation,
+)
 from app.services.wifi import expire_due_passes, pass_data
 from app.time import aware, business_date as current_business_date, db_now
 
@@ -704,21 +710,69 @@ def recommendations(
         .where(AIRecommendation.store_id == claims["storeId"])
         .order_by(AIRecommendation.created_at.desc())
     ).all()
-    return success(
-        [
-            {
-                "recommendationId": item.id,
-                "type": item.type,
-                "payload": item.payload,
-                "reason": item.reason,
-                "status": item.status,
-                "version": item.version,
-                "createdAt": aware(item.created_at).isoformat() if item.created_at else None,
-                "decidedAt": aware(item.decided_at).isoformat() if item.decided_at else None,
-            }
-            for item in items
-        ]
+    return success([_recommendation_data(item) for item in items])
+
+
+def _recommendation_data(item: AIRecommendation) -> dict:
+    return {
+        "recommendationId": item.id,
+        "type": item.type,
+        "payload": item.payload,
+        "reason": item.reason,
+        "evidence": item.evidence,
+        "confidence": item.confidence,
+        "status": item.status,
+        "version": item.version,
+        "createdAt": aware(item.created_at).isoformat() if item.created_at else None,
+        "decidedAt": aware(item.decided_at).isoformat() if item.decided_at else None,
+    }
+
+
+@router.post("/admin/ai/recommendations/generate", status_code=201)
+def generate_recommendations(
+    payload: RecommendationGenerateRequest,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _require_write_role(db, claims)
+    if payload.storeId != claims["storeId"]:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    store = _store_for_admin(db, claims)
+    target_date = payload.businessDate or current_business_date(
+        db_now(), timezone_name=store.timezone, cutoff=store.business_day_cutoff
     )
+    if payload.type == "TIME_SALE":
+        generated = [
+            generate_time_sale_recommendation(
+                db, store=store, business_date=target_date
+            )
+        ]
+    elif payload.type == "SALES_SUMMARY":
+        generated = [
+            generate_sales_summary_recommendation(
+                db, store=store, business_date=target_date
+            )
+        ]
+    elif payload.type == "INVENTORY_PROMOTION":
+        generated = scan_inventory(db, store_id=store.id)
+    else:
+        generated = generate_menu_trend_recommendations(db, store=store)
+    record_audit(
+        db,
+        store_id=store.id,
+        action="AI_RECOMMENDATIONS_GENERATED",
+        resource_type="AIRecommendation",
+        resource_id=generated[0].id if len(generated) == 1 else None,
+        actor_type="ADMIN",
+        actor_id=claims.get("adminId"),
+        metadata={
+            "type": payload.type,
+            "businessDate": target_date.isoformat(),
+            "recommendationIds": [item.id for item in generated],
+        },
+    )
+    db.commit()
+    return success([_recommendation_data(item) for item in generated])
 
 
 def _promotion_payload(
@@ -740,6 +794,23 @@ def _promotion_payload(
         if len(products) != len(set(overrides.menuIds)):
             raise HTTPException(status_code=422, detail="프로모션 메뉴가 해당 매장에 없습니다.")
         updated["menuIds"] = overrides.menuIds
+    elif updated.get("menuIds"):
+        menu_ids = updated["menuIds"]
+        if (
+            not isinstance(menu_ids, list)
+            or not all(isinstance(menu_id, str) for menu_id in menu_ids)
+            or len(menu_ids) != len(set(menu_ids))
+        ):
+            raise HTTPException(status_code=422, detail="추천 메뉴 목록이 유효하지 않습니다.")
+        products = db.scalars(
+            select(Product).where(
+                Product.store_id == recommendation.store_id,
+                Product.id.in_(menu_ids),
+                Product.is_active.is_(True),
+            )
+        ).all()
+        if len(products) != len(menu_ids):
+            raise HTTPException(status_code=422, detail="추천 메뉴가 해당 매장에 없습니다.")
 
     discount_rate = (
         overrides.discountRate

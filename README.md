@@ -43,6 +43,7 @@ app/
 │  ├─ policy.py            # 첫/추가 주문 시간 정책
 │  ├─ rewards.py           # 당일 누적·리워드 선택
 │  ├─ wifi.py              # 만료 스캔·상태
+│  ├─ recommendations.py   # OpenAI Structured Outputs + 규칙 fallback
 │  └─ demo_network.py      # Demo authorize/revoke
 └─ seed.py                 # 데모 매장·메뉴·AI 카드 1건
 alembic/
@@ -69,6 +70,9 @@ DATABASE_URL=postgresql+psycopg://postgres:password@db.example.supabase.co:5432/
 JWT_SECRET=32자 이상의 운영용 비밀키
 DEMO_KEY=demo-key
 DEMO_OTP_CODE=123456
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5-mini
+OPENAI_TIMEOUT_SECONDS=20
 EXPIRE_INTERVAL_SECONDS=60
 ```
 
@@ -87,7 +91,7 @@ PENDING AI 카드가 중복 생성되지 않습니다.
 ### 4. 실행
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --env-file .env
 ```
 
 로컬 SQLite 초기화, Alembic, 데모 시드, 서버 실행을 한 번에 하려면 다음 스크립트를 사용할 수
@@ -139,6 +143,7 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | POST | `/admin/wifi/policies/simulate` | 정책 미리 계산 |
 | POST | `/admin/wifi/policies/publish` | 정책 버전 게시 |
 | GET | `/admin/ai/recommendations` | AI 추천 카드 조회 |
+| POST | `/admin/ai/recommendations/generate` | AI 추천 생성(OpenAI 또는 fallback) |
 | GET | `/admin/ai/sales-summary` | 시간대 매출·주문·Wi-Fi 요약 |
 | GET | `/admin/inventory` | 재고·위험도 조회 |
 | POST | `/admin/inventory` | 재고 기준값 저장 |
@@ -152,6 +157,30 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | PATCH | `/admin/ai/recommendations/{id}` | 추천 시간·메뉴·할인율 수정 |
 | POST | `/admin/ai/recommendations/{id}/accept` | 추천 승인·프로모션 생성 |
 | POST | `/admin/ai/recommendations/{id}/reject` | 추천 거절 |
+
+### 추천 생성·시연 결정
+
+이번 백엔드 시연의 AI 주제는 `TIME_SALE`로 확정합니다. 현재 FastAPI MVP에서
+`TIME_POLICY`는 AI 추천 타입으로 구현되어 있지 않고, `/admin/wifi/policies/*`의 결정론적
+Wi-Fi 시간 정책으로 동작합니다. 반면 `TIME_SALE`은 기획서·프론트 카드·현재 시드 데이터와
+일치하고, 생성 → 관리자 수정 → 승인 → `Promotion` 생성 흐름을 한 번에 보여줄 수 있습니다.
+
+시연 순서는 `TIME_SALE` 추천 생성 → 카드의 `source=OPENAI`와 근거 확인 → 필요 시 수정 →
+관리자 승인으로 진행합니다. `OPENAI_API_KEY`가 없거나 호출/검증에 실패하면 같은 API가
+`source=RULE_FALLBACK` 카드로 안전하게 전환됩니다. 생성만으로는 프로모션이 게시되지 않습니다.
+
+```bash
+export OPENAI_API_KEY="발급받은_프로젝트_API_키"
+export OPENAI_MODEL="gpt-5-mini"
+
+curl -X POST http://127.0.0.1:8000/admin/ai/recommendations/generate \
+  -H 'Authorization: Bearer ADMIN_ACCESS_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{"storeId":"STORE_UUID","type":"TIME_SALE"}'
+```
+
+응답의 `payload.source`가 `OPENAI`이면 실제 Responses API 생성 결과이며, `OPENAI` 추천도
+Pydantic Structured Outputs와 매장 메뉴·할인율·시간 정책 검증을 통과한 경우에만 저장됩니다.
 
 Customer Portal 연동 응답에는 다음 표시용 필드가 포함됩니다.
 
@@ -207,7 +236,7 @@ curl -X POST http://127.0.0.1:8000/public/otp/confirm \
 - OTP 원문은 `otp_challenges`에 저장하지 않고 `demo_messages` Demo Inbox에만 남깁니다.
 - 부분/전액 환불은 실제 환불 금액만 당일 누적에서 차감하고, 아직 사용하지 않은 하위 티어 리워드·쿠폰은 회수합니다.
 - 모든 오류는 `type`, `title`, `status`, `code`, `detail`, `retryable`, `requestId` Problem JSON으로 반환합니다.
-- 매출 요약·재고 위험·신메뉴 카드는 규칙 기반 폴백으로 동작하며, 외부 LLM/SNS 수집은 MVP에서 호출하지 않습니다.
+- 명시적 추천 생성 API의 `TIME_SALE`·`SALES_SUMMARY`는 `OPENAI_API_KEY`가 있을 때 OpenAI Responses API를 호출하고, 키가 없거나 실패하면 규칙 기반 fallback을 저장합니다. 재고·신메뉴 카드는 현재 규칙 기반입니다.
 - OTP는 주문 단위 발송 횟수를 제한하고, 보존기간이 지난 OTP/데모 메시지/전화 lookup 정보와 감사 로그를 lifespan 정리 루프에서 폐기합니다.
 
 ## 테스트

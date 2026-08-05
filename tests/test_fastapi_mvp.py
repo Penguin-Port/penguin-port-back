@@ -514,6 +514,26 @@ def test_admin_sales_summary_and_inventory_risk_recommendation(client):
     assert listed.json()["data"][0]["evidence"]["riskScore"] == 100
 
 
+def test_admin_can_generate_time_sale_recommendation_with_fallback(client):
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+    store_id, product_id = ids()
+
+    generated = client.post(
+        "/admin/ai/recommendations/generate",
+        headers=auth,
+        json={"storeId": store_id, "type": "TIME_SALE"},
+    )
+
+    assert generated.status_code == 201
+    item = generated.json()["data"][0]
+    assert item["type"] == "TIME_SALE"
+    assert item["status"] == "PENDING"
+    assert item["payload"]["source"] == "RULE_FALLBACK"
+    assert item["payload"]["menuIds"] == [product_id]
+    assert item["evidence"]["provider"] == "RULE_FALLBACK"
+
+
 def test_frontend_reference_aliases_are_available(client):
     order = create_order(client, "ORDER-ALIAS", phone="010-5555-0004")
     data = order.json()["data"]
