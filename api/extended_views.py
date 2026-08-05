@@ -1,10 +1,14 @@
 import json
+import os
+import time
 from datetime import timedelta
 
 import jwt
 from django.contrib.auth import authenticate, login, logout
 from django.conf import settings
 from django.db import transaction
+from django.db import close_old_connections
+from django.db.models import Q
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -16,6 +20,7 @@ from ai_ops.services import (
     generate_sales_summary,
     generate_time_sale_recommendation,
     reject_recommendation,
+    validate_promotion_payload,
 )
 from api.access import require_store_access
 from api.auth import create_portal_session, read_portal_session
@@ -1162,6 +1167,20 @@ class AdminRecommendationEditView(APIView):
                 code="RECOMMENDATION_VERSION_CONFLICT",
                 status=409,
             )
+        if recommendation.type == AIRecommendation.Type.TIME_SALE:
+            try:
+                data["payload"] = validate_promotion_payload(
+                    store=store,
+                    recommendation_type=recommendation.type,
+                    payload=data["payload"],
+                )
+            except ValueError as exc:
+                return problem_response(
+                    request=request,
+                    detail=str(exc),
+                    code="RECOMMENDATION_PAYLOAD_INVALID",
+                    status=422,
+                )
         recommendation.payload = data["payload"]
         recommendation.reason = data.get("reason", recommendation.reason)
         recommendation.status = AIRecommendation.Status.EDITED
@@ -1554,13 +1573,43 @@ class StoreEventsView(APIView):
             except OutboxEvent.DoesNotExist:
                 pass
         events = list(queryset[:100])
+        cursor_time = events[-1].occurred_at if events else None
+        cursor_id = str(events[-1].id) if events else last_event_id
 
         def stream():
             for event in events:
                 yield f"id: {event.id}\n"
                 yield f"event: {event.type}\n"
                 yield f"data: {json.dumps(event.payload, ensure_ascii=False)}\n\n"
-            yield ": heartbeat\n\n"
+            yield ": connected\n\n"
+            deadline = time.monotonic() + min(
+                max(int(request.query_params.get("timeoutSeconds", "300")), 1),
+                1800,
+            )
+            poll_seconds = min(max(float(os.getenv("SSE_POLL_SECONDS", "1")), 0.2), 10.0)
+            current_time = cursor_time
+            current_id = cursor_id
+            while time.monotonic() < deadline:
+                close_old_connections()
+                new_events = OutboxEvent.objects.filter(store=store).order_by(
+                    "occurred_at", "id"
+                )
+                if current_time is not None:
+                    new_events = new_events.filter(
+                        Q(occurred_at__gt=current_time)
+                        | Q(occurred_at=current_time, id__gt=current_id or "")
+                    )
+                batch = list(new_events[:100])
+                if batch:
+                    for event in batch:
+                        yield f"id: {event.id}\n"
+                        yield f"event: {event.type}\n"
+                        yield f"data: {json.dumps(event.payload, ensure_ascii=False)}\n\n"
+                    current_time = batch[-1].occurred_at
+                    current_id = str(batch[-1].id)
+                else:
+                    yield ": heartbeat\n\n"
+                    time.sleep(poll_seconds)
 
         response = StreamingHttpResponse(stream(), content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"

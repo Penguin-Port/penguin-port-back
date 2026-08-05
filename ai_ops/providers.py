@@ -1,8 +1,15 @@
+import os
 from typing import Protocol
+
+from app.services.recommendations import OpenAIRecommendationProvider, ProviderResult
 
 
 class AIProvider(Protocol):
     def complete_json(self, *, schema: dict, features: dict) -> dict: ...
+
+    def generate_time_sale(self, features: dict) -> ProviderResult: ...
+
+    def generate_sales_summary(self, features: dict) -> ProviderResult: ...
 
 
 class RuleBasedAIProvider:
@@ -15,6 +22,26 @@ class RuleBasedAIProvider:
         }
 
 
+class OpenAIProvider:
+    """Structured-output provider shared with the FastAPI recommendation path."""
+
+    def __init__(self):
+        self._provider = OpenAIRecommendationProvider()
+
+    def generate_time_sale(self, features: dict) -> ProviderResult:
+        return self._provider.generate_time_sale(features)
+
+    def generate_sales_summary(self, features: dict) -> ProviderResult:
+        return self._provider.generate_sales_summary(features)
+
+    def complete_json(self, *, schema: dict, features: dict):
+        # Legacy callers receive the safe summary shape; new recommendation
+        # callers use the typed methods above.
+        result = self.generate_sales_summary(features)
+        return {**result.payload, "source": result.source}
+
+
 def get_ai_provider() -> AIProvider:
-    # OPENAI_API_KEY가 연결되면 JSON Schema 강제 Gateway 구현으로 교체한다.
+    if os.getenv("OPENAI_API_KEY", "").strip():
+        return OpenAIProvider()
     return RuleBasedAIProvider()

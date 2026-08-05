@@ -573,6 +573,139 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /admin/team:
+    get:
+      tags:
+      - Admin
+      summary: List Team
+      operationId: list_team_admin_team_get
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - Admin
+      summary: Create Team Member
+      operationId: create_team_member_admin_team_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminTeamMemberCreateRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/team/{admin_id}:
+    patch:
+      tags:
+      - Admin
+      summary: Update Team Member
+      operationId: update_team_member_admin_team__admin_id__patch
+      parameters:
+      - name: admin_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Admin Id
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminTeamMemberPatchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/events:
+    get:
+      tags:
+      - Admin
+      summary: Admin Events
+      operationId: admin_events_admin_events_get
+      parameters:
+      - name: storeId
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Storeid
+      - name: Last-Event-ID
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last-Event-Id
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /admin/wifi/policies:
     get:
       tags:
@@ -1084,6 +1217,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /admin/ai/recommendations/generate:
+    post:
+      tags:
+      - Admin
+      summary: Generate Recommendations
+      operationId: generate_recommendations_admin_ai_recommendations_generate_post
+      parameters:
+      - name: authorization
+        in: header
+        required: true
+        schema:
+          type: string
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecommendationGenerateRequest'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /admin/ai/recommendations/{recommendation_id}:
     patch:
       tags:
@@ -1197,6 +1361,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /health/ready:
+    get:
+      summary: Readiness
+      operationId: readiness_health_ready_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
 components:
   schemas:
     AdminLoginRequest:
@@ -1254,6 +1428,60 @@ components:
           title: Refreshtoken
       type: object
       title: AdminRefreshRequest
+    AdminTeamMemberCreateRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        username:
+          type: string
+          maxLength: 120
+          minLength: 3
+          pattern: ^[A-Za-z0-9_.-]+$
+          title: Username
+        password:
+          type: string
+          maxLength: 256
+          minLength: 8
+          title: Password
+        role:
+          type: string
+          pattern: ^(OWNER|MANAGER|STAFF|VIEWER)$
+          title: Role
+          default: STAFF
+      type: object
+      required:
+      - storeId
+      - username
+      - password
+      title: AdminTeamMemberCreateRequest
+    AdminTeamMemberPatchRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        role:
+          anyOf:
+          - type: string
+            pattern: ^(OWNER|MANAGER|STAFF|VIEWER)$
+          - type: 'null'
+          title: Role
+        isActive:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Isactive
+        password:
+          anyOf:
+          - type: string
+            maxLength: 256
+            minLength: 8
+          - type: 'null'
+          title: Password
+      type: object
+      required:
+      - storeId
+      title: AdminTeamMemberPatchRequest
     ClaimExchangeRequest:
       properties:
         orderClaim:
@@ -1490,6 +1718,26 @@ components:
       - storeId
       - version
       title: RecommendationDecisionRequest
+    RecommendationGenerateRequest:
+      properties:
+        storeId:
+          type: string
+          title: Storeid
+        type:
+          type: string
+          pattern: ^(TIME_SALE|SALES_SUMMARY|INVENTORY_PROMOTION|MENU_TREND)$
+          title: Type
+          default: TIME_SALE
+        businessDate:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Businessdate
+      type: object
+      required:
+      - storeId
+      title: RecommendationGenerateRequest
     RecommendationPatchRequest:
       properties:
         storeId:

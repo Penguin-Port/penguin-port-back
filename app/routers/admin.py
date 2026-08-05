@@ -1,10 +1,18 @@
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response
-from sqlalchemy import select
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth import decode_token, hash_token, issue_token, require_admin, verify_password
+from app.auth import (
+    decode_token,
+    hash_password,
+    hash_token,
+    issue_token,
+    require_admin,
+    verify_password,
+)
 from app.config import settings
 from app.db import get_db
 from app.http import success
@@ -25,10 +33,13 @@ from app.models import (
 from app.schemas import (
     AdminLoginRequest,
     AdminLogoutRequest,
+    AdminTeamMemberCreateRequest,
+    AdminTeamMemberPatchRequest,
     AdminPassExpireRequest,
     AdminPassExtendRequest,
     AdminRefreshRequest,
     RecommendationDecisionRequest,
+    RecommendationGenerateRequest,
     RecommendationPatchRequest,
     RecommendationRejectRequest,
     WifiPolicyPublishRequest,
@@ -43,8 +54,15 @@ from app.services.analytics import (
 )
 from app.services.audit import record_audit
 from app.services.demo_network import revoke
+from app.services.events import history as event_history, stream_events
+from app.services.events import publish_event
 from app.services.inventory import calculate_risk_score, inventory_data, scan_inventory
 from app.services.policy import additional_order_minutes, first_order_minutes
+from app.services.recommendations import (
+    generate_menu_trend_recommendations,
+    generate_sales_summary_recommendation,
+    generate_time_sale_recommendation,
+)
 from app.services.wifi import expire_due_passes, pass_data
 from app.time import aware, business_date as current_business_date, db_now
 
@@ -53,11 +71,12 @@ router = APIRouter(tags=["Admin"])
 
 REFRESH_COOKIE = "smartpass_refresh"
 WRITE_ROLES = {"OWNER", "MANAGER"}
+TEAM_ROLES = {"OWNER", "MANAGER", "STAFF", "VIEWER"}
 
 
 def _admin_user(db: Session, claims: dict) -> AdminUser:
     user = db.get(AdminUser, claims.get("adminId"))
-    if user is None:
+    if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="관리자를 찾을 수 없습니다.")
     return user
 
@@ -66,6 +85,13 @@ def _require_write_role(db: Session, claims: dict) -> AdminUser:
     user = _admin_user(db, claims)
     if user.role not in WRITE_ROLES:
         raise HTTPException(status_code=403, detail="이 작업을 수행할 관리자 권한이 없습니다.")
+    return user
+
+
+def _require_owner(db: Session, claims: dict) -> AdminUser:
+    user = _admin_user(db, claims)
+    if user.role != "OWNER":
+        raise HTTPException(status_code=403, detail="점주 권한이 필요한 작업입니다.")
     return user
 
 
@@ -124,7 +150,7 @@ def login(
     db: Session = Depends(get_db),
 ):
     user = db.scalar(select(AdminUser).where(AdminUser.username == payload.username))
-    if user is None or not verify_password(payload.password, user.password_hash):
+    if user is None or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
     refresh_token, _ = _new_refresh_session(db, user)
     data = _access_payload(user)
@@ -157,7 +183,7 @@ def refresh(
     ):
         raise HTTPException(status_code=401, detail="Refresh Token이 만료되었거나 폐기되었습니다.")
     user = db.get(AdminUser, session.admin_id)
-    if user is None:
+    if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="관리자를 찾을 수 없습니다.")
     session.revoked_at = db_now()
     new_refresh, new_session = _new_refresh_session(db, user)
@@ -203,8 +229,163 @@ def me(
             "storeId": user.store_id,
             "username": user.username,
             "role": user.role,
+            "isActive": user.is_active,
         }
     )
+
+
+def _team_member_data(user: AdminUser) -> dict:
+    return {
+        "adminId": user.id,
+        "storeId": user.store_id,
+        "username": user.username,
+        "role": user.role,
+        "isActive": user.is_active,
+        "createdAt": aware(user.created_at).isoformat() if user.created_at else None,
+    }
+
+
+@router.get("/admin/team")
+def list_team(
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    members = db.scalars(
+        select(AdminUser)
+        .where(AdminUser.store_id == claims["storeId"])
+        .order_by(AdminUser.username.asc())
+    ).all()
+    return success([_team_member_data(member) for member in members])
+
+
+@router.post("/admin/team", status_code=201)
+def create_team_member(
+    payload: AdminTeamMemberCreateRequest,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    actor = _require_owner(db, claims)
+    if payload.storeId != actor.store_id:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    if db.scalar(select(AdminUser).where(AdminUser.username == payload.username)) is not None:
+        raise HTTPException(status_code=409, detail="이미 사용 중인 관리자 아이디입니다.")
+    member = AdminUser(
+        store_id=actor.store_id,
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        is_active=True,
+    )
+    db.add(member)
+    db.flush()
+    record_audit(
+        db,
+        store_id=actor.store_id,
+        action="ADMIN_TEAM_MEMBER_CREATED",
+        resource_type="AdminUser",
+        resource_id=member.id,
+        actor_type="ADMIN",
+        actor_id=actor.id,
+        metadata={"role": member.role},
+    )
+    publish_event(
+        db,
+        store_id=actor.store_id,
+        event_type="admin.team.member_created",
+        aggregate_type="AdminUser",
+        aggregate_id=member.id,
+        payload={"adminId": member.id, "username": member.username, "role": member.role},
+    )
+    db.commit()
+    return success(_team_member_data(member), status=201)
+
+
+@router.patch("/admin/team/{admin_id}")
+def update_team_member(
+    admin_id: str,
+    payload: AdminTeamMemberPatchRequest,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    actor = _require_owner(db, claims)
+    if payload.storeId != actor.store_id:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    member = db.get(AdminUser, admin_id)
+    if member is None or member.store_id != actor.store_id:
+        raise HTTPException(status_code=404, detail="팀 관리자를 찾을 수 없습니다.")
+    if member.id == actor.id and payload.isActive is False:
+        raise HTTPException(status_code=422, detail="현재 로그인한 점주는 비활성화할 수 없습니다.")
+    next_role = payload.role or member.role
+    next_active = member.is_active if payload.isActive is None else payload.isActive
+    if member.role == "OWNER" and (next_role != "OWNER" or not next_active):
+        owner_count = db.scalar(
+            select(func.count(AdminUser.id)).where(
+                AdminUser.store_id == actor.store_id,
+                AdminUser.role == "OWNER",
+                AdminUser.is_active.is_(True),
+            )
+        ) or 0
+        if owner_count <= 1:
+            raise HTTPException(status_code=409, detail="활성 점주는 최소 한 명 이상 필요합니다.")
+    member.role = next_role
+    member.is_active = next_active
+    if payload.password:
+        member.password_hash = hash_password(payload.password)
+    record_audit(
+        db,
+        store_id=actor.store_id,
+        action="ADMIN_TEAM_MEMBER_UPDATED",
+        resource_type="AdminUser",
+        resource_id=member.id,
+        actor_type="ADMIN",
+        actor_id=actor.id,
+        metadata={"role": member.role, "isActive": member.is_active},
+    )
+    if not member.is_active:
+        db.query(RefreshTokenSession).filter(
+            RefreshTokenSession.admin_id == member.id,
+            RefreshTokenSession.revoked_at.is_(None),
+        ).update({RefreshTokenSession.revoked_at: db_now()}, synchronize_session=False)
+    publish_event(
+        db,
+        store_id=actor.store_id,
+        event_type="admin.team.member_updated",
+        aggregate_type="AdminUser",
+        aggregate_id=member.id,
+        payload={"adminId": member.id, "role": member.role, "isActive": member.is_active},
+    )
+    db.commit()
+    return success(_team_member_data(member))
+
+
+@router.get("/admin/events")
+def admin_events(
+    request: Request,
+    store_id: str | None = Query(default=None, alias="storeId"),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    requested_store = store_id or claims["storeId"]
+    if requested_store != claims["storeId"]:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    events = event_history(
+        db,
+        store_id=requested_store,
+        last_event_id=last_event_id,
+    )
+    response = StreamingResponse(
+        stream_events(
+            store_id=requested_store,
+            initial=events,
+            last_event_id=last_event_id,
+        ),
+        media_type="text/event-stream",
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Connection"] = "keep-alive"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
 
 
 def _store_for_admin(db: Session, claims: dict) -> Store:
@@ -704,21 +885,78 @@ def recommendations(
         .where(AIRecommendation.store_id == claims["storeId"])
         .order_by(AIRecommendation.created_at.desc())
     ).all()
-    return success(
-        [
-            {
-                "recommendationId": item.id,
-                "type": item.type,
-                "payload": item.payload,
-                "reason": item.reason,
-                "status": item.status,
-                "version": item.version,
-                "createdAt": aware(item.created_at).isoformat() if item.created_at else None,
-                "decidedAt": aware(item.decided_at).isoformat() if item.decided_at else None,
-            }
-            for item in items
-        ]
+    return success([_recommendation_data(item) for item in items])
+
+
+def _recommendation_data(item: AIRecommendation) -> dict:
+    return {
+        "recommendationId": item.id,
+        "type": item.type,
+        "payload": item.payload,
+        "reason": item.reason,
+        "evidence": item.evidence,
+        "confidence": item.confidence,
+        "status": item.status,
+        "version": item.version,
+        "createdAt": aware(item.created_at).isoformat() if item.created_at else None,
+        "decidedAt": aware(item.decided_at).isoformat() if item.decided_at else None,
+    }
+
+
+@router.post("/admin/ai/recommendations/generate", status_code=201)
+def generate_recommendations(
+    payload: RecommendationGenerateRequest,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _require_write_role(db, claims)
+    if payload.storeId != claims["storeId"]:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    store = _store_for_admin(db, claims)
+    target_date = payload.businessDate or current_business_date(
+        db_now(), timezone_name=store.timezone, cutoff=store.business_day_cutoff
     )
+    if payload.type == "TIME_SALE":
+        generated = [
+            generate_time_sale_recommendation(
+                db, store=store, business_date=target_date
+            )
+        ]
+    elif payload.type == "SALES_SUMMARY":
+        generated = [
+            generate_sales_summary_recommendation(
+                db, store=store, business_date=target_date
+            )
+        ]
+    elif payload.type == "INVENTORY_PROMOTION":
+        generated = scan_inventory(db, store_id=store.id)
+    else:
+        generated = generate_menu_trend_recommendations(db, store=store)
+    record_audit(
+        db,
+        store_id=store.id,
+        action="AI_RECOMMENDATIONS_GENERATED",
+        resource_type="AIRecommendation",
+        resource_id=generated[0].id if len(generated) == 1 else None,
+        actor_type="ADMIN",
+        actor_id=claims.get("adminId"),
+        metadata={
+            "type": payload.type,
+            "businessDate": target_date.isoformat(),
+            "recommendationIds": [item.id for item in generated],
+        },
+    )
+    for item in generated:
+        publish_event(
+            db,
+            store_id=store.id,
+            event_type="ai.recommendation.created",
+            aggregate_type="AIRecommendation",
+            aggregate_id=item.id,
+            payload={"recommendationId": item.id, "type": item.type, "status": item.status},
+        )
+    db.commit()
+    return success([_recommendation_data(item) for item in generated])
 
 
 def _promotion_payload(
@@ -740,6 +978,23 @@ def _promotion_payload(
         if len(products) != len(set(overrides.menuIds)):
             raise HTTPException(status_code=422, detail="프로모션 메뉴가 해당 매장에 없습니다.")
         updated["menuIds"] = overrides.menuIds
+    elif updated.get("menuIds"):
+        menu_ids = updated["menuIds"]
+        if (
+            not isinstance(menu_ids, list)
+            or not all(isinstance(menu_id, str) for menu_id in menu_ids)
+            or len(menu_ids) != len(set(menu_ids))
+        ):
+            raise HTTPException(status_code=422, detail="추천 메뉴 목록이 유효하지 않습니다.")
+        products = db.scalars(
+            select(Product).where(
+                Product.store_id == recommendation.store_id,
+                Product.id.in_(menu_ids),
+                Product.is_active.is_(True),
+            )
+        ).all()
+        if len(products) != len(menu_ids):
+            raise HTTPException(status_code=422, detail="추천 메뉴가 해당 매장에 없습니다.")
 
     discount_rate = (
         overrides.discountRate
@@ -772,6 +1027,8 @@ def _promotion_payload(
     updated["endsAt"] = ends_at.isoformat()
     if not updated.get("title"):
         raise HTTPException(status_code=422, detail="프로모션 제목이 필요합니다.")
+    if recommendation.type == "TIME_SALE" and not updated.get("menuIds"):
+        raise HTTPException(status_code=422, detail="프로모션 메뉴를 하나 이상 선택해야 합니다.")
     return updated, starts_at, ends_at
 
 
@@ -803,6 +1060,14 @@ def edit_recommendation(
         actor_type="ADMIN",
         actor_id=claims.get("adminId"),
         metadata={"version": recommendation.version},
+    )
+    publish_event(
+        db,
+        store_id=recommendation.store_id,
+        event_type="ai.recommendation.edited",
+        aggregate_type="AIRecommendation",
+        aggregate_id=recommendation.id,
+        payload={"recommendationId": recommendation.id, "version": recommendation.version},
     )
     db.commit()
     return success(
@@ -846,6 +1111,7 @@ def accept_recommendation(
     recommendation.version += 1
     recommendation.decided_at = db_now()
     db.add(promotion)
+    db.flush()
     record_audit(
         db,
         store_id=recommendation.store_id,
@@ -855,6 +1121,19 @@ def accept_recommendation(
         actor_type="ADMIN",
         actor_id=claims.get("adminId"),
         metadata={"promotionTitle": promotion.title},
+    )
+    publish_event(
+        db,
+        store_id=recommendation.store_id,
+        event_type="promotion.scheduled",
+        aggregate_type="Promotion",
+        aggregate_id=promotion.id,
+        payload={
+            "promotionId": promotion.id,
+            "recommendationId": recommendation.id,
+            "startsAt": promotion.starts_at.isoformat(),
+            "endsAt": promotion.ends_at.isoformat(),
+        },
     )
     db.commit()
     return success(
@@ -898,6 +1177,14 @@ def reject_recommendation(
         actor_type="ADMIN",
         actor_id=claims.get("adminId"),
         metadata={"reasonProvided": bool(payload and payload.reason)},
+    )
+    publish_event(
+        db,
+        store_id=recommendation.store_id,
+        event_type="ai.recommendation.rejected",
+        aggregate_type="AIRecommendation",
+        aggregate_id=recommendation.id,
+        payload={"recommendationId": recommendation.id, "version": recommendation.version},
     )
     db.commit()
     return success(

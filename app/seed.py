@@ -164,6 +164,7 @@ def seed(
                 type="TIME_SALE",
                 payload={
                     "title": title,
+                    "menuIds": [product.id],
                     "menuName": "아메리카노",
                     "discountRate": 15,
                     "startsAt": starts_at.isoformat(),
@@ -171,6 +172,8 @@ def seed(
                     "source": "MVP_SEED",
                 },
                 reason="오후 2~4시 아메리카노 판매를 촉진합니다.",
+                evidence={"provider": "MVP_SEED", "selectedMenuId": product.id},
+                confidence=0.7,
             )
             db.add(recommendation)
         db.flush()

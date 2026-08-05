@@ -12,19 +12,21 @@
 
 | 영역 | 기술 |
 | --- | --- |
-| 앱 서버 | FastAPI 단일 프로세스 |
+| 공개 MVP API | FastAPI |
+| 전체 운영 API/Control Plane | Django + Django REST Framework |
 | ORM | SQLAlchemy 2.x |
 | 마이그레이션 | Alembic |
 | 원본 DB | Supabase PostgreSQL (`DATABASE_URL`) |
 | 관리자 인증 | FastAPI JWT |
 | 고객 세션 | 짧은 JWT Portal Session |
-| 만료 처리 | FastAPI lifespan 내부 60초 루프 |
-| 데모 외부 연동 | `DemoMessage`, Demo Network Adapter |
+| 백그라운드 작업 | Celery + Redis (`USE_CELERY=1`) |
+| 실시간 이벤트 | 저장형 BackendEvent + SSE |
+| 외부 연동 | Demo/Solapi/HTTP 알림, Demo/HTTP Wi-Fi, Demo/HTTP 트렌드 |
 | 테스트 | pytest, FastAPI TestClient |
 
-Redis, Celery, Django, 별도 Worker, Docker Compose, 실 SMS/AP 연동은 축소 MVP 운영 경로에서
-제외했습니다. 기존 Django 구현 파일은 전환 참고용으로 남아 있으며 운영 requirements에는 포함하지
-않습니다.
+FastAPI는 대회용 축소 MVP 기본 실행 경로이고, Django는 전체 백엔드 기획서의 운영 API와
+팀 권한·Outbox·Celery 작업 경로입니다. 두 경로는 같은 저장소에서 선택적으로 실행할 수 있으며,
+`docker compose --profile full up`으로 Django와 Django worker/beat까지 함께 기동할 수 있습니다.
 
 ## 프로젝트 구조
 
@@ -43,8 +45,15 @@ app/
 │  ├─ policy.py            # 첫/추가 주문 시간 정책
 │  ├─ rewards.py           # 당일 누적·리워드 선택
 │  ├─ wifi.py              # 만료 스캔·상태
-│  └─ demo_network.py      # Demo authorize/revoke
+│  ├─ recommendations.py   # OpenAI Structured Outputs + 규칙 fallback
+│  ├─ events.py            # BackendEvent·Redis fan-out·SSE
+│  ├─ notifications.py     # OTP provider 연결
+│  └─ demo_network.py      # Demo/HTTP AP adapter
+├─ celery_app.py           # FastAPI Celery 앱
+├─ tasks.py                # FastAPI minutely/hourly/daily jobs
 └─ seed.py                 # 데모 매장·메뉴·AI 카드 1건
+integrations/
+└─ providers.py            # SMS/알림톡·Wi-Fi·트렌드 공통 provider
 alembic/
 └─ versions/0001_initial.py
 ```
@@ -69,7 +78,17 @@ DATABASE_URL=postgresql+psycopg://postgres:password@db.example.supabase.co:5432/
 JWT_SECRET=32자 이상의 운영용 비밀키
 DEMO_KEY=demo-key
 DEMO_OTP_CODE=123456
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5-mini
+OPENAI_TIMEOUT_SECONDS=20
 EXPIRE_INTERVAL_SECONDS=60
+REDIS_URL=
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/1
+USE_CELERY=0
+NOTIFICATION_PROVIDER=DEMO
+WIFI_NETWORK_PROVIDER=DEMO
+TREND_PROVIDER=DEMO
 ```
 
 로컬에서 빠르게 확인할 때 `DATABASE_URL=sqlite:///./smartpass.db`도 사용할 수 있습니다.
@@ -87,7 +106,7 @@ PENDING AI 카드가 중복 생성되지 않습니다.
 ### 4. 실행
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --env-file .env
 ```
 
 로컬 SQLite 초기화, Alembic, 데모 시드, 서버 실행을 한 번에 하려면 다음 스크립트를 사용할 수
@@ -104,8 +123,9 @@ RESET_DB=0 ./scripts/run_local.sh
 - Swagger: `http://127.0.0.1:8000/docs`
 - OpenAPI JSON: `http://127.0.0.1:8000/openapi.json`
 
-PaaS 배포에서는 `Dockerfile`이 `alembic upgrade head` 후 단일 Uvicorn 프로세스를 실행합니다.
-Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
+기본 Docker 실행은 `alembic upgrade head` 후 Uvicorn을 실행합니다. Redis/Celery와 PostgreSQL을
+포함한 운영형 실행은 `docker compose up`을 사용하고, Django 전체 백엔드까지 포함하려면
+`docker compose --profile full up`을 사용합니다. 상세 환경 변수는 `.env.example`에 있습니다.
 
 ## PDF MVP API
 
@@ -135,10 +155,15 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | GET | `/admin/passes/active` | 활성 이용권 폴링 목록 |
 | POST | `/admin/passes/{id}/extend` | 수동 연장 |
 | POST | `/admin/passes/{id}/expire` | 즉시 종료 + Demo revoke |
+| GET | `/admin/events` | 관리자 실시간 SSE 이벤트 스트림 |
+| GET | `/admin/team` | 관리자 팀 목록 |
+| POST | `/admin/team` | 관리자 계정 생성 |
+| PATCH | `/admin/team/{adminId}` | 관리자 역할·활성 상태·비밀번호 변경 |
 | GET | `/admin/wifi/policies` | Wi-Fi 정책 조회 |
 | POST | `/admin/wifi/policies/simulate` | 정책 미리 계산 |
 | POST | `/admin/wifi/policies/publish` | 정책 버전 게시 |
 | GET | `/admin/ai/recommendations` | AI 추천 카드 조회 |
+| POST | `/admin/ai/recommendations/generate` | AI 추천 생성(OpenAI 또는 fallback) |
 | GET | `/admin/ai/sales-summary` | 시간대 매출·주문·Wi-Fi 요약 |
 | GET | `/admin/inventory` | 재고·위험도 조회 |
 | POST | `/admin/inventory` | 재고 기준값 저장 |
@@ -152,6 +177,36 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | PATCH | `/admin/ai/recommendations/{id}` | 추천 시간·메뉴·할인율 수정 |
 | POST | `/admin/ai/recommendations/{id}/accept` | 추천 승인·프로모션 생성 |
 | POST | `/admin/ai/recommendations/{id}/reject` | 추천 거절 |
+
+### 추천 생성·시연 결정
+
+이번 백엔드 시연의 AI 주제는 `TIME_SALE`로 확정합니다. 현재 FastAPI MVP에서
+`TIME_POLICY`는 AI 추천 타입으로 구현되어 있지 않고, `/admin/wifi/policies/*`의 결정론적
+Wi-Fi 시간 정책으로 동작합니다. 반면 `TIME_SALE`은 기획서·프론트 카드·현재 시드 데이터와
+일치하고, 생성 → 관리자 수정 → 승인 → `Promotion` 생성 흐름을 한 번에 보여줄 수 있습니다.
+
+시연 순서는 `TIME_SALE` 추천 생성 → 카드의 `source=OPENAI`와 근거 확인 → 필요 시 수정 →
+관리자 승인으로 진행합니다. `OPENAI_API_KEY`가 없거나 호출/검증에 실패하면 같은 API가
+`source=RULE_FALLBACK` 카드로 안전하게 전환됩니다. 생성만으로는 프로모션이 게시되지 않습니다.
+
+```bash
+export OPENAI_API_KEY="발급받은_프로젝트_API_키"
+export OPENAI_MODEL="gpt-5-mini"
+
+curl -X POST http://127.0.0.1:8000/admin/ai/recommendations/generate \
+  -H 'Authorization: Bearer ADMIN_ACCESS_TOKEN' \
+  -H 'Content-Type: application/json' \
+  -d '{"storeId":"STORE_UUID","type":"TIME_SALE"}'
+```
+
+응답의 `payload.source`가 `OPENAI`이면 실제 Responses API 생성 결과이며, `OPENAI` 추천도
+Pydantic Structured Outputs와 매장 메뉴·할인율·시간 정책 검증을 통과한 경우에만 저장됩니다.
+
+`NOTIFICATION_PROVIDER=SOLAPI`이면 Solapi SMS/알림톡 HMAC API를 호출하고, `HTTP`이면
+`NOTIFICATION_BASE_URL` 게이트웨이를 호출합니다. `WIFI_NETWORK_PROVIDER=HTTP`는
+`WIFI_AP_BASE_URL` 컨트롤러의 세션 생성/삭제 API를 사용합니다. 외부 트렌드는
+`TREND_PROVIDER=HTTP`와 `TREND_API_BASE_URL`로 연결하며, 외부 서비스가 없으면 Demo provider로
+안전하게 동작합니다.
 
 Customer Portal 연동 응답에는 다음 표시용 필드가 포함됩니다.
 
@@ -201,13 +256,14 @@ curl -X POST http://127.0.0.1:8000/public/otp/confirm \
 - 첫 주문 기본 정책: 120분, 10,000원 이상 +30분, 15,000원 이상 +60분(관리자 정책 게시로 변경 가능)
 - 추가 주문 기본 정책: 5,000원 이상 +60분, 10,000원 이상 +120분(관리자 정책 게시로 변경 가능)
 - 이용권은 `version`, `expires_at`, `status`, `policy_snapshot`을 저장하고 연장 시 version을 올립니다.
-- lifespan 만료 루프가 `ACTIVE`/`EXPIRING_SOON` 이용권을 직접 스캔해 `EXPIRED`로 바꾸고 Demo revoke를 호출합니다.
+- `USE_CELERY=0`이면 lifespan 만료 루프가 동작하고, `USE_CELERY=1`이면 Celery minutely task가 만료·개인정보·프로모션 상태를 처리합니다.
 - 누적 티어는 5,000원과 10,000원 두 개이며 혜택은 최대 3개입니다.
 - AI 시드는 “오후 2~4시 아메리카노 15% 할인 추천” PENDING 카드 한 건입니다.
 - OTP 원문은 `otp_challenges`에 저장하지 않고 `demo_messages` Demo Inbox에만 남깁니다.
 - 부분/전액 환불은 실제 환불 금액만 당일 누적에서 차감하고, 아직 사용하지 않은 하위 티어 리워드·쿠폰은 회수합니다.
 - 모든 오류는 `type`, `title`, `status`, `code`, `detail`, `retryable`, `requestId` Problem JSON으로 반환합니다.
-- 매출 요약·재고 위험·신메뉴 카드는 규칙 기반 폴백으로 동작하며, 외부 LLM/SNS 수집은 MVP에서 호출하지 않습니다.
+- 명시적 추천 생성 API의 `TIME_SALE`·`SALES_SUMMARY`는 `OPENAI_API_KEY`가 있을 때 OpenAI Responses API를 호출하고, 키가 없거나 실패하면 규칙 기반 fallback을 저장합니다. 재고·신메뉴 카드는 현재 규칙 기반입니다.
+- `GET /admin/events`는 저장된 이벤트를 먼저 재생하고, 프로세스 내부 fan-out 또는 Redis Pub/Sub를 통해 새 이벤트를 SSE로 전달합니다.
 - OTP는 주문 단위 발송 횟수를 제한하고, 보존기간이 지난 OTP/데모 메시지/전화 lookup 정보와 감사 로그를 lifespan 정리 루프에서 폐기합니다.
 
 ## 테스트

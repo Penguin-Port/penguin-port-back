@@ -13,7 +13,6 @@ from app.http import success
 from app.models import (
     Coupon,
     DailySpendBalance,
-    DemoMessage,
     Order,
     OrderClaim,
     OrderItem,
@@ -34,6 +33,9 @@ from app.schemas import (
 )
 from app.services.demo_network import authorize
 from app.services.audit import record_audit
+from app.services.events import publish_event
+from app.services.notifications import generate_otp, send_otp as deliver_otp
+from integrations.providers import get_notification_provider
 from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.rewards import choose_benefit
 from app.services.wifi import expire_due_passes, pass_data
@@ -124,6 +126,14 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
             WiFiPass.business_date == order.business_date,
         )
     )
+    publish_event(
+        db,
+        store_id=order.store_id,
+        event_type="order.claim.exchanged",
+        aggregate_type="OrderClaim",
+        aggregate_id=claim.id,
+        payload={"orderId": order.id, "passId": wifi_pass.id if wifi_pass else None},
+    )
     db.commit()
     return success(
         {
@@ -189,24 +199,27 @@ def send_otp(payload: OtpSendRequest, db: Session = Depends(get_db)):
     )
     db.add(challenge)
     db.flush()
-    code = settings.demo_otp_code
+    provider = get_notification_provider()
+    code = generate_otp(configured_code=settings.demo_otp_code, provider_name=provider.name)
     challenge.code_hash = _hash_code(challenge.id, code)
-    db.add(
-        DemoMessage(
+    try:
+        delivery = deliver_otp(
+            db,
             store_id=order.store_id,
-            channel="SMS",
-            destination=masked_phone(payload.phone),
-            body=f"인증번호: {code}",
-            payload={"challengeId": challenge.id, "demoCode": code},
+            phone=payload.phone,
+            code=code,
+            challenge_id=challenge.id,
         )
-    )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OTP 발송에 실패했습니다: {exc}") from exc
     db.commit()
     return success(
         {
             "challengeId": challenge.id,
             "expiresAt": challenge.expires_at.isoformat(),
             "maxAttempts": 5,
-            "demoCode": code,
+            "demoCode": code if delivery.provider == "DEMO" else None,
+            "provider": delivery.provider,
         }
     )
 
@@ -277,6 +290,14 @@ def activate_pass(
     wifi_pass.status = "ACTIVE"
     wifi_pass.activated_at = db_now()
     wifi_pass.network_reference = authorize(wifi_pass.id)
+    publish_event(
+        db,
+        store_id=wifi_pass.store_id,
+        event_type="wifi.pass.activated",
+        aggregate_type="WiFiPass",
+        aggregate_id=wifi_pass.id,
+        payload={"passId": wifi_pass.id, "networkReference": wifi_pass.network_reference},
+    )
     db.commit()
     return success(pass_data(wifi_pass))
 

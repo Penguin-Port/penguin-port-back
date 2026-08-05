@@ -1,0 +1,160 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smartpass}
+      POSTGRES_USER: ${POSTGRES_USER:-smartpass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartpass}
+    volumes:
+      - smartpass-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-smartpass} -d ${POSTGRES_DB:-smartpass}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - smartpass-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  fastapi:
+    build: .
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-smartpass}:${POSTGRES_PASSWORD:-smartpass}@db:5432/${POSTGRES_DB:-smartpass}
+      REDIS_URL: redis://redis:6379/2
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      USE_CELERY: "1"
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-long-random-secret}
+      DEMO_KEY: ${DEMO_KEY:-demo-key}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
+      NOTIFICATION_PROVIDER: ${NOTIFICATION_PROVIDER:-DEMO}
+      SOLAPI_API_KEY: ${SOLAPI_API_KEY:-}
+      SOLAPI_API_SECRET: ${SOLAPI_API_SECRET:-}
+      SOLAPI_SENDER: ${SOLAPI_SENDER:-}
+      WIFI_NETWORK_PROVIDER: ${WIFI_NETWORK_PROVIDER:-DEMO}
+      WIFI_AP_BASE_URL: ${WIFI_AP_BASE_URL:-}
+      WIFI_AP_API_TOKEN: ${WIFI_AP_API_TOKEN:-}
+      TREND_PROVIDER: ${TREND_PROVIDER:-DEMO}
+      TREND_API_BASE_URL: ${TREND_API_BASE_URL:-}
+      TREND_API_TOKEN: ${TREND_API_TOKEN:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  fastapi-worker:
+    build: .
+    command: celery -A app.celery_app.celery_app worker --loglevel=INFO
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-smartpass}:${POSTGRES_PASSWORD:-smartpass}@db:5432/${POSTGRES_DB:-smartpass}
+      REDIS_URL: redis://redis:6379/2
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      USE_CELERY: "1"
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-long-random-secret}
+    depends_on:
+      fastapi:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  fastapi-beat:
+    build: .
+    command: celery -A app.celery_app.celery_app beat --loglevel=INFO
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-smartpass}:${POSTGRES_PASSWORD:-smartpass}@db:5432/${POSTGRES_DB:-smartpass}
+      REDIS_URL: redis://redis:6379/2
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      USE_CELERY: "1"
+      JWT_SECRET: ${JWT_SECRET:-change-this-to-a-long-random-secret}
+    depends_on:
+      fastapi:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  # Django is the full control-plane backend path already present in this
+  # repository. It is opt-in so the lighter FastAPI MVP remains easy to run.
+  django:
+    profiles: ["full"]
+    build: .
+    command: sh -c "python manage.py migrate && gunicorn config.wsgi:application --bind 0.0.0.0:8001"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smartpass}
+      POSTGRES_USER: ${POSTGRES_USER:-smartpass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartpass}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-this-django-secret}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-false}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-*}
+      REDIS_URL: redis://redis:6379/3
+      CELERY_BROKER_URL: redis://redis:6379/4
+      CELERY_RESULT_BACKEND: redis://redis:6379/5
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "8001:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  django-worker:
+    profiles: ["full"]
+    build: .
+    command: celery -A config.celery worker --loglevel=INFO
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smartpass}
+      POSTGRES_USER: ${POSTGRES_USER:-smartpass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartpass}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-this-django-secret}
+      REDIS_URL: redis://redis:6379/3
+      CELERY_BROKER_URL: redis://redis:6379/4
+      CELERY_RESULT_BACKEND: redis://redis:6379/5
+    depends_on:
+      django:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  django-beat:
+    profiles: ["full"]
+    build: .
+    command: celery -A config.celery beat --loglevel=INFO
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-smartpass}
+      POSTGRES_USER: ${POSTGRES_USER:-smartpass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-smartpass}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-this-django-secret}
+      REDIS_URL: redis://redis:6379/3
+      CELERY_BROKER_URL: redis://redis:6379/4
+      CELERY_RESULT_BACKEND: redis://redis:6379/5
+    depends_on:
+      django:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+volumes:
+  smartpass-postgres:
+  smartpass-redis:
+

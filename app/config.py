@@ -13,6 +13,10 @@ class Settings:
     )
     demo_key: str = os.getenv("DEMO_KEY", "demo-key")
     demo_otp_code: str = os.getenv("DEMO_OTP_CODE", "123456")
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "").strip()
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+    openai_base_url: str = os.getenv("OPENAI_BASE_URL", "").strip()
+    openai_timeout_seconds: float = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "20"))
     expire_interval_seconds: int = int(os.getenv("EXPIRE_INTERVAL_SECONDS", "60"))
     access_token_minutes: int = int(os.getenv("ACCESS_TOKEN_MINUTES", "60"))
     refresh_token_days: int = int(os.getenv("REFRESH_TOKEN_DAYS", "14"))
@@ -23,6 +27,14 @@ class Settings:
     audit_retention_days: int = int(os.getenv("AUDIT_RETENTION_DAYS", "365"))
     otp_send_window_seconds: int = int(os.getenv("OTP_SEND_WINDOW_SECONDS", "60"))
     otp_max_sends_per_window: int = int(os.getenv("OTP_MAX_SENDS_PER_WINDOW", "3"))
+    redis_url: str = os.getenv("REDIS_URL", "").strip()
+    celery_broker_url: str = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0").strip()
+    celery_result_backend: str = os.getenv(
+        "CELERY_RESULT_BACKEND", "redis://localhost:6379/1"
+    ).strip()
+    use_celery: bool = os.getenv("USE_CELERY", "0") == "1"
+    sse_heartbeat_seconds: int = int(os.getenv("SSE_HEARTBEAT_SECONDS", "15"))
+    sse_max_seconds: int = int(os.getenv("SSE_MAX_SECONDS", "300"))
 
     @property
     def sqlalchemy_database_url(self) -> str:

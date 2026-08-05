@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -298,6 +298,10 @@ class AdminUser(Base):
     username: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(256))
     role: Mapped[str] = mapped_column(String(20), default="OWNER")
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=db_now, nullable=True
+    )
 
 
 class RefreshTokenSession(Base):
@@ -323,6 +327,23 @@ class AuditLog(Base):
     resource_type: Mapped[str] = mapped_column(String(40))
     resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
+
+
+class BackendEvent(Base):
+    """Durable event stream rows used by the admin SSE endpoint."""
+
+    __tablename__ = "backend_events"
+    __table_args__ = (
+        Index("ix_backend_events_store_created", "store_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_value)
+    store_id: Mapped[str] = mapped_column(ForeignKey("stores.id"), index=True)
+    event_type: Mapped[str] = mapped_column(String(100))
+    aggregate_type: Mapped[str] = mapped_column(String(80))
+    aggregate_id: Mapped[str] = mapped_column(String(80))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
 
 

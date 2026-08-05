@@ -24,15 +24,16 @@ async def _expire_loop():
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    task = asyncio.create_task(_expire_loop())
+    task = None if settings.use_celery else asyncio.create_task(_expire_loop())
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(
@@ -101,7 +102,32 @@ for router in (pos.router, public.router, admin.router):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "scheduler": "celery" if settings.use_celery else "lifespan"}
+
+
+@app.get("/health/ready")
+def readiness():
+    from sqlalchemy import text
+
+    with session_scope() as db:
+        db.execute(text("SELECT 1"))
+    redis_status = "disabled"
+    if settings.redis_url:
+        try:
+            import redis
+
+            client = redis.Redis.from_url(settings.redis_url)
+            client.ping()
+            client.close()
+            redis_status = "ok"
+        except Exception:
+            redis_status = "unavailable"
+    return {
+        "status": "ok" if redis_status != "unavailable" else "degraded",
+        "database": "ok",
+        "redis": redis_status,
+        "scheduler": "celery" if settings.use_celery else "lifespan",
+    }
 
 
 if __name__ == "__main__":
