@@ -23,6 +23,7 @@ from app.models import (
     RewardTier,
     Store,
     WiFiPass,
+    Product,
 )
 from app.schemas import (
     ClaimExchangeRequest,
@@ -34,7 +35,8 @@ from app.services.demo_network import authorize
 from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.rewards import choose_benefit
 from app.services.wifi import expire_due_passes, pass_data
-from app.time import db_now
+from app.security import masked_phone, phone_lookup_hash
+from app.time import business_date, db_now
 
 
 router = APIRouter(tags=["Public"])
@@ -62,6 +64,8 @@ def _portal_pass(db: Session, claims: dict, pass_id: str) -> WiFiPass:
 
 
 def _provided_minutes(db: Session, order: Order) -> int:
+    if order.wifi_minutes:
+        return order.wifi_minutes
     first_order_id = db.scalar(
         select(Order.id)
         .where(
@@ -156,15 +160,19 @@ def send_otp(payload: OtpSendRequest, db: Session = Depends(get_db)):
     order = db.get(Order, claims.get("orderId"))
     if order is None or order.store_id != claims.get("storeId"):
         raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
-    digits = "".join(character for character in payload.phone if character.isdigit())
-    customer_key = f"phone:{digits}"
-    if customer_key != order.customer_key:
+    try:
+        lookup_hash = phone_lookup_hash(payload.phone)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    customer_key = f"phone:{lookup_hash}"
+    if order.phone_lookup_hash != lookup_hash and customer_key != order.customer_key:
         raise HTTPException(status_code=422, detail="주문에 연결된 전화번호와 일치하지 않습니다.")
     challenge = OtpChallenge(
         store_id=order.store_id,
         order_id=order.id,
         customer_key=customer_key,
-        phone=payload.phone,
+        phone=masked_phone(payload.phone),
+        phone_lookup_hash=lookup_hash,
         code_hash="pending",
         expires_at=db_now() + timedelta(minutes=3),
     )
@@ -176,7 +184,7 @@ def send_otp(payload: OtpSendRequest, db: Session = Depends(get_db)):
         DemoMessage(
             store_id=order.store_id,
             channel="SMS",
-            destination=payload.phone,
+            destination=masked_phone(payload.phone),
             body=f"인증번호: {code}",
             payload={"challengeId": challenge.id, "demoCode": code},
         )
@@ -287,10 +295,17 @@ def upsell_hint(
     claims: dict = Depends(require_portal_session),
     db: Session = Depends(get_db),
 ):
+    store = db.get(Store, claims["storeId"])
+    if store is None:
+        raise HTTPException(status_code=404, detail="매장을 찾을 수 없습니다.")
+    day = business_date(
+        db_now(), timezone_name=store.timezone, cutoff=store.business_day_cutoff
+    )
     balance = db.scalar(
         select(DailySpendBalance).where(
             DailySpendBalance.store_id == claims["storeId"],
             DailySpendBalance.customer_key == claims["customerKey"],
+            DailySpendBalance.business_date == day,
         )
     )
     total = balance.total_amount if balance else 0
@@ -302,11 +317,36 @@ def upsell_hint(
         )
         .order_by(RewardTier.threshold_amount)
     )
+    preview = []
+    suggested_items = []
+    if tier is not None:
+        benefits = db.scalars(
+            select(RewardBenefit)
+            .join(RewardTier, RewardBenefit.tier_id == RewardTier.id)
+            .where(RewardTier.id == tier.id)
+            .order_by(RewardBenefit.id)
+        ).all()
+        preview = [benefit.benefit_type for benefit in benefits]
+        suggested_items = [
+            {
+                "productId": product.id,
+                "name": product.name,
+                "price": product.price,
+            }
+            for product in db.scalars(
+                select(Product)
+                .where(Product.store_id == claims["storeId"], Product.is_active.is_(True))
+                .order_by(Product.price.asc(), Product.name.asc())
+                .limit(3)
+            ).all()
+        ]
     return success(
         {
             "dailyTotal": total,
             "nextTierAmount": tier.threshold_amount if tier else None,
             "remainingAmountToNextTier": tier.threshold_amount - total if tier else 0,
+            "nextTierBenefitsPreview": preview,
+            "suggestedItems": suggested_items,
         }
     )
 
@@ -349,6 +389,7 @@ def reward_options(
                     "title": benefit.title,
                     "payload": benefit.payload,
                     "recommended": index == 0,
+                    "recommendationReason": "현재 MVP 기본 추천 혜택입니다." if index == 0 else None,
                 }
                 for index, benefit in enumerate(benefits)
             ],
@@ -389,5 +430,75 @@ def choose_reward(
                 if coupon
                 else None
             ),
+        }
+    )
+
+
+@router.get("/public/coupons")
+def list_coupons(
+    claims: dict = Depends(require_portal_session),
+    db: Session = Depends(get_db),
+):
+    coupons = db.scalars(
+        select(Coupon)
+        .where(
+            Coupon.store_id == claims["storeId"],
+            Coupon.customer_key == claims["customerKey"],
+        )
+        .order_by(Coupon.created_at.desc(), Coupon.id.desc())
+    ).all()
+    now = db_now()
+    changed = False
+    for coupon in coupons:
+        if coupon.status == "AVAILABLE" and coupon.expires_at <= now:
+            coupon.status = "EXPIRED"
+            changed = True
+    if changed:
+        db.commit()
+    return success(
+        [
+            {
+                "couponId": coupon.id,
+                "status": coupon.status,
+                "benefit": coupon.benefit_snapshot,
+                "expiresAt": coupon.expires_at.isoformat(),
+                "redeemedAt": coupon.redeemed_at.isoformat() if coupon.redeemed_at else None,
+            }
+            for coupon in coupons
+        ]
+    )
+
+
+@router.post("/public/coupons/{coupon_id}/redeem")
+def redeem_coupon(
+    coupon_id: str,
+    claims: dict = Depends(require_portal_session),
+    db: Session = Depends(get_db),
+):
+    coupon = db.scalar(
+        select(Coupon).where(
+            Coupon.id == coupon_id,
+            Coupon.store_id == claims["storeId"],
+            Coupon.customer_key == claims["customerKey"],
+        )
+    )
+    if coupon is None:
+        raise HTTPException(status_code=404, detail="쿠폰을 찾을 수 없습니다.")
+    if coupon.status != "AVAILABLE":
+        raise HTTPException(status_code=409, detail="사용할 수 없는 쿠폰 상태입니다.")
+    now = db_now()
+    if coupon.expires_at <= now:
+        coupon.status = "EXPIRED"
+        db.commit()
+        raise HTTPException(status_code=410, detail="쿠폰이 만료되었습니다.")
+    coupon.status = "REDEEMED"
+    coupon.redeemed_at = now
+    db.commit()
+    return success(
+        {
+            "couponId": coupon.id,
+            "status": coupon.status,
+            "redeemedAt": coupon.redeemed_at.isoformat(),
+            "benefit": coupon.benefit_snapshot,
         }
     )

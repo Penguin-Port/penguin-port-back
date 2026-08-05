@@ -8,6 +8,9 @@ class Settings:
     jwt_secret: str = os.getenv(
         "JWT_SECRET", "local-mvp-secret-change-me-use-at-least-32-bytes"
     )
+    phone_lookup_secret: str = os.getenv(
+        "PHONE_LOOKUP_SECRET", "local-phone-lookup-secret-change-me"
+    )
     demo_key: str = os.getenv("DEMO_KEY", "demo-key")
     demo_otp_code: str = os.getenv("DEMO_OTP_CODE", "123456")
     expire_interval_seconds: int = int(os.getenv("EXPIRE_INTERVAL_SECONDS", "60"))

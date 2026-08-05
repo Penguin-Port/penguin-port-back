@@ -66,9 +66,12 @@ def choose_benefit(
         raise ValueError("이미 선택이 완료된 리워드입니다.")
     if benefit.tier_id != grant.tier_id:
         raise ValueError("리워드 혜택이 해당 티어에 속하지 않습니다.")
+    if fulfill_mode not in {"IMMEDIATE", "COUPON_7D"}:
+        raise ValueError("지원하지 않는 리워드 사용 방식입니다.")
     grant.status = "FULFILLED"
     grant.chosen_benefit_id = benefit.id
     grant.fulfill_mode = fulfill_mode
+    grant.fulfilled_at = db_now()
     coupon = None
     if fulfill_mode == "COUPON_7D":
         coupon = Coupon(

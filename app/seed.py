@@ -81,6 +81,7 @@ def seed(
                 store_id=store.id,
                 username=username,
                 password_hash=hash_password(password),
+                role="OWNER",
             )
             db.add(admin_user)
         else:

@@ -1,37 +1,62 @@
 import hashlib
+import json
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth import issue_token, require_demo_key
+from app.auth import require_demo_key
 from app.db import get_db
 from app.http import success
-from app.models import Order, OrderClaim, OrderItem, Product, Store, WiFiPass
+from app.models import IdempotencyRecord, Order, OrderClaim, OrderItem, Product, Store, WiFiPass
 from app.schemas import PosOrderRequest
-from app.services.policy import (
-    additional_order_minutes,
-    business_date,
-    expiry_after,
-    first_order_minutes,
-)
+from app.services.policy import additional_order_minutes, expiry_after, first_order_minutes
 from app.services.rewards import evaluate_grants
+from app.security import customer_key, phone_last4, phone_lookup_hash
 from app.services.wifi import pass_data
-from app.time import db_now
+from app.time import business_date, db_now
 
 
 router = APIRouter(tags=["POS"])
 
 
 def _customer_key(payload: PosOrderRequest) -> str:
-    if payload.customer.memberId:
-        return f"member:{payload.customer.memberId}"
-    if payload.customer.phone:
-        digits = "".join(character for character in payload.customer.phone if character.isdigit())
-        return f"phone:{digits}"
-    raise HTTPException(status_code=422, detail="memberId 또는 phone이 필요합니다.")
+    try:
+        return customer_key(member_id=payload.customer.memberId, phone=payload.customer.phone)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _request_hash(payload: PosOrderRequest) -> str:
+    canonical = json.dumps(
+        payload.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _existing_idempotent_response(
+    db: Session, *, scope: str, key: str, request_hash: str
+) -> JSONResponse | None:
+    record = db.scalar(
+        select(IdempotencyRecord).where(
+            IdempotencyRecord.scope == scope,
+            IdempotencyRecord.key == key,
+        )
+    )
+    if record is None:
+        return None
+    if record.request_hash != request_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="같은 Idempotency-Key로 다른 주문 요청을 재사용할 수 없습니다.",
+        )
+    return JSONResponse(content=record.response_json, status_code=record.status_code)
 
 
 @router.post("/pos/orders", status_code=201)
@@ -39,10 +64,21 @@ def create_order(
     payload: PosOrderRequest,
     db: Session = Depends(get_db),
     _: None = Depends(require_demo_key),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
     store = db.get(Store, payload.storeId)
     if store is None:
         raise HTTPException(status_code=404, detail="매장을 찾을 수 없습니다.")
+    request_hash = _request_hash(payload)
+    scope = f"pos-order:{store.id}"
+    if idempotency_key:
+        if not 8 <= len(idempotency_key) <= 200:
+            raise HTTPException(status_code=422, detail="Idempotency-Key 길이가 올바르지 않습니다.")
+        replay = _existing_idempotent_response(
+            db, scope=scope, key=idempotency_key, request_hash=request_hash
+        )
+        if replay is not None:
+            return replay
     duplicate = db.scalar(
         select(Order).where(
             Order.store_id == store.id,
@@ -52,16 +88,30 @@ def create_order(
     if duplicate is not None:
         raise HTTPException(status_code=409, detail="이미 처리된 externalOrderId입니다.")
 
-    products = {}
+    resolved_items = []
+    calculated_total = 0
     for item in payload.items:
         product = db.get(Product, item.productId)
         if product is None or product.store_id != store.id or not product.is_active:
             raise HTTPException(status_code=422, detail="주문 상품을 찾을 수 없습니다.")
-        products[product.id] = product
+        unit_price = item.unitPrice if item.unitPrice is not None else product.price
+        calculated_total += item.quantity * unit_price
+        resolved_items.append((item, product, unit_price))
+    if calculated_total != payload.totalAmount:
+        raise HTTPException(
+            status_code=422,
+            detail="totalAmount가 주문 항목 합계와 일치하지 않습니다.",
+        )
 
     now = db_now()
     customer_key = _customer_key(payload)
-    day = business_date(now)
+    day = business_date(
+        payload.paidAt,
+        timezone_name=store.timezone,
+        cutoff=store.business_day_cutoff,
+    )
+    lookup_hash = phone_lookup_hash(payload.customer.phone) if payload.customer.phone else None
+    last4 = phone_last4(payload.customer.phone) if payload.customer.phone else None
     wifi_pass = db.scalar(
         select(WiFiPass).where(
             WiFiPass.store_id == store.id,
@@ -96,22 +146,26 @@ def create_order(
         store_id=store.id,
         external_order_id=payload.externalOrderId,
         customer_key=customer_key,
-        phone=payload.customer.phone,
+        phone=None,
+        phone_lookup_hash=lookup_hash,
+        phone_last4=last4,
         total_amount=payload.totalAmount,
+        status="PAID",
+        refunded_amount=0,
+        wifi_minutes=minutes,
         business_date=day,
         paid_at=payload.paidAt,
     )
     db.add(order)
     db.flush()
-    for item in payload.items:
-        product = products[item.productId]
+    for item, product, unit_price in resolved_items:
         db.add(
             OrderItem(
                 order_id=order.id,
                 product_id=product.id,
                 name_snapshot=product.name,
                 quantity=item.quantity,
-                unit_price=item.unitPrice if item.unitPrice is not None else product.price,
+                unit_price=unit_price,
             )
         )
 
@@ -129,14 +183,28 @@ def create_order(
         business_date=day,
         amount=payload.totalAmount,
     )
-    db.commit()
-    return success(
+    response = success(
         {
             "orderId": order.id,
             "businessDate": day.isoformat(),
             "dailyTotal": daily_total,
             "newRewardGrantIds": [grant.id for grant in grants],
-            "wifiPass": pass_data(wifi_pass),
+            "wifiPass": {
+                **pass_data(wifi_pass),
+                "breakdown": [wifi_pass.policy_snapshot],
+            },
             "orderClaim": {"token": claim_plain, "expiresAt": claim.expires_at.isoformat()},
         }
     )
+    if idempotency_key:
+        db.add(
+            IdempotencyRecord(
+                scope=scope,
+                key=idempotency_key,
+                request_hash=request_hash,
+                status_code=201,
+                response_json=response,
+            )
+        )
+    db.commit()
+    return response

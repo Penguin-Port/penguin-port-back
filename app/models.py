@@ -44,8 +44,13 @@ class Order(Base):
     store_id: Mapped[str] = mapped_column(ForeignKey("stores.id"), index=True)
     external_order_id: Mapped[str] = mapped_column(String(120))
     customer_key: Mapped[str] = mapped_column(String(160), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="PAID", index=True)
     phone: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    phone_lookup_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    phone_last4: Mapped[str | None] = mapped_column(String(4), nullable=True)
     total_amount: Mapped[int] = mapped_column(Integer)
+    refunded_amount: Mapped[int] = mapped_column(Integer, default=0)
+    wifi_minutes: Mapped[int] = mapped_column(Integer, default=0)
     business_date: Mapped[date] = mapped_column(Date, index=True)
     paid_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
@@ -81,6 +86,7 @@ class OtpChallenge(Base):
     order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"))
     customer_key: Mapped[str] = mapped_column(String(160), index=True)
     phone: Mapped[str] = mapped_column(String(40))
+    phone_lookup_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     code_hash: Mapped[str] = mapped_column(String(128))
     status: Mapped[str] = mapped_column(String(20), default="PENDING")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -131,6 +137,7 @@ class DailySpendBalance(Base):
     business_date: Mapped[date] = mapped_column(Date)
     customer_key: Mapped[str] = mapped_column(String(160))
     total_amount: Mapped[int] = mapped_column(Integer, default=0)
+    version: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class RewardTier(Base):
@@ -170,6 +177,7 @@ class RewardGrant(Base):
     status: Mapped[str] = mapped_column(String(24), default="AWAITING_CHOICE")
     chosen_benefit_id: Mapped[str | None] = mapped_column(ForeignKey("reward_benefits.id"), nullable=True)
     fulfill_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    fulfilled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
 
 
@@ -184,6 +192,7 @@ class Coupon(Base):
     benefit_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
 
 
 class AIRecommendation(Base):
@@ -221,3 +230,19 @@ class AdminUser(Base):
     store_id: Mapped[str] = mapped_column(ForeignKey("stores.id"), index=True)
     username: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(256))
+    role: Mapped[str] = mapped_column(String(20), default="OWNER")
+
+
+class IdempotencyRecord(Base):
+    __tablename__ = "idempotency_records"
+    __table_args__ = (
+        UniqueConstraint("scope", "key", name="uq_idempotency_scope_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_value)
+    scope: Mapped[str] = mapped_column(String(180), index=True)
+    key: Mapped[str] = mapped_column(String(200))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    status_code: Mapped[int] = mapped_column(Integer, default=200)
+    response_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)

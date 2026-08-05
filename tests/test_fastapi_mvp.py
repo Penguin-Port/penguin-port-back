@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -6,9 +6,9 @@ from sqlalchemy import select
 
 from app.db import SessionLocal, init_db
 from app.main import app
-from app.models import AIRecommendation, Product, Store, WiFiPass
+from app.models import AIRecommendation, Order, Product, Store, WiFiPass
 from app.seed import seed
-from app.time import db_now
+from app.time import business_date, db_now
 
 
 @pytest.fixture()
@@ -26,18 +26,27 @@ def ids():
         return store.id, product.id
 
 
-def create_order(client, external_id="ORDER-1", total=5000):
+def create_order(
+    client, external_id="ORDER-1", total=5000, headers=None, paid_at=None, item_unit_price=None
+):
     store_id, product_id = ids()
+    request_headers = {"X-Demo-Key": "demo-key", **(headers or {})}
     return client.post(
         "/pos/orders",
-        headers={"X-Demo-Key": "demo-key"},
+        headers=request_headers,
         json={
             "storeId": store_id,
             "externalOrderId": external_id,
             "customer": {"phone": "010-1234-5678"},
-            "items": [{"productId": product_id, "quantity": 1, "unitPrice": total}],
+            "items": [
+                {
+                    "productId": product_id,
+                    "quantity": 1,
+                    "unitPrice": total if item_unit_price is None else item_unit_price,
+                }
+            ],
             "totalAmount": total,
-            "paidAt": "2026-08-01T12:00:00+09:00",
+            "paidAt": paid_at or "2026-08-01T12:00:00+09:00",
         },
     )
 
@@ -195,3 +204,46 @@ def test_expire_loop_scans_active_passes(client):
     assert active.status_code == 200
     with SessionLocal() as db:
         assert db.get(WiFiPass, pass_id).status == "EXPIRED"
+
+
+def test_pos_idempotency_replays_the_original_response(client):
+    headers = {"Idempotency-Key": "idem-order-001"}
+    first = create_order(client, "ORDER-IDEMPOTENT", headers=headers)
+    second = create_order(client, "ORDER-IDEMPOTENT", headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json() == first.json()
+    with SessionLocal() as db:
+        orders = db.scalars(select(Order).where(Order.external_order_id == "ORDER-IDEMPOTENT")).all()
+        assert len(orders) == 1
+
+    changed = create_order(client, "ORDER-IDEMPOTENT-CHANGED", total=6000, headers=headers)
+    assert changed.status_code == 409
+
+
+def test_order_total_must_match_line_items(client):
+    response = create_order(client, "ORDER-BAD-TOTAL", total=6000, item_unit_price=5000)
+    assert response.status_code == 422
+
+
+def test_business_date_uses_store_timezone_and_cutoff():
+    before_cutoff = datetime(2026, 8, 2, 16, 30, tzinfo=timezone.utc)
+    at_cutoff = datetime(2026, 8, 2, 17, 0, tzinfo=timezone.utc)
+
+    assert business_date(
+        before_cutoff, timezone_name="Asia/Seoul", cutoff="02:00"
+    ).isoformat() == "2026-08-02"
+    assert business_date(
+        at_cutoff, timezone_name="Asia/Seoul", cutoff="02:00"
+    ).isoformat() == "2026-08-03"
+
+
+def test_phone_is_not_persisted_as_plaintext(client):
+    response = create_order(client, "ORDER-PHONE-MASK")
+    order_id = response.json()["data"]["orderId"]
+    with SessionLocal() as db:
+        order = db.get(Order, order_id)
+        assert order.phone is None
+        assert order.phone_lookup_hash
+        assert order.phone_last4 == "5678"
