@@ -115,6 +115,7 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | Method | Endpoint | 용도 |
 | --- | --- | --- |
 | POST | `/pos/orders` | 주문·이용권·Claim·당일 누적 생성 |
+| POST | `/pos/orders/{id}/refund` | 부분/전액 환불 및 누적·미사용 혜택 회수 |
 | POST | `/public/order-claims/exchange` | QR Claim 교환 |
 | POST | `/public/otp/send` | Demo Inbox OTP 발송 |
 | POST | `/public/otp/confirm` | Portal Session 발급 |
@@ -125,6 +126,7 @@ Docker Compose나 별도 Worker 서비스는 사용하지 않습니다.
 | POST | `/public/rewards/{grantId}/choose` | 즉시 혜택/7일 쿠폰 선택 |
 | GET | `/public/coupons` | 고객 쿠폰함 |
 | POST | `/public/coupons/{id}/redeem` | 쿠폰 사용 |
+| GET | `/public/stores/{id}/privacy-notice` | 전화번호 보관·폐기 안내 |
 | POST | `/admin/login` | 점주 JWT 로그인 |
 | POST | `/admin/refresh` | Refresh Token rotation |
 | POST | `/admin/logout` | Refresh Token 폐기 |
@@ -192,6 +194,8 @@ curl -X POST http://127.0.0.1:8000/public/otp/confirm \
 - 누적 티어는 5,000원과 10,000원 두 개이며 혜택은 최대 3개입니다.
 - AI 시드는 “오후 2~4시 아메리카노 15% 할인 추천” PENDING 카드 한 건입니다.
 - OTP 원문은 `otp_challenges`에 저장하지 않고 `demo_messages` Demo Inbox에만 남깁니다.
+- 부분/전액 환불은 실제 환불 금액만 당일 누적에서 차감하고, 아직 사용하지 않은 하위 티어 리워드·쿠폰은 회수합니다.
+- 모든 오류는 `type`, `title`, `status`, `code`, `detail`, `retryable`, `requestId` Problem JSON으로 반환합니다.
 
 ## 테스트
 

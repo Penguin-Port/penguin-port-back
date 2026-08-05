@@ -19,6 +19,8 @@ class Settings:
     promotion_max_discount_rate: int = int(os.getenv("PROMOTION_MAX_DISCOUNT_RATE", "50"))
     promotion_max_duration_hours: int = int(os.getenv("PROMOTION_MAX_DURATION_HOURS", "24"))
     secure_cookies: bool = os.getenv("SECURE_COOKIES", "0") == "1"
+    phone_retention_days: int = int(os.getenv("PHONE_RETENTION_DAYS", "90"))
+    audit_retention_days: int = int(os.getenv("AUDIT_RETENTION_DAYS", "365"))
 
     @property
     def sqlalchemy_database_url(self) -> str:

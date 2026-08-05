@@ -24,6 +24,12 @@ class PosOrderRequest(BaseModel):
     paidAt: datetime
 
 
+class PosRefundRequest(BaseModel):
+    storeId: str
+    refundAmount: int | None = Field(default=None, ge=1)
+    reason: str = ""
+
+
 class ClaimExchangeRequest(BaseModel):
     orderClaim: str
 

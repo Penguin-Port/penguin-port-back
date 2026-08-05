@@ -12,6 +12,7 @@
 | QR 교환 주문 표시 정보 | exchange 응답의 `storeName`, `orderNo`, `items`, `paidAmount`, `providedMinutes` |
 | 주문 합계·영업일·전화 식별자 | 항목 합계 검증, Store Timezone/cutoff, phone lookup hash/last4 |
 | POS 멱등성 | `Idempotency-Key`와 `idempotency_records` 재응답 |
+| 부분/전액 환불 | `POST /pos/orders/{id}/refund`, 누적 차감·미사용 Grant/Coupon 회수 |
 | OTP Demo Inbox | `POST /public/otp/send`, `/public/otp/confirm` |
 | Portal Session | JWT 발급·검증 |
 | Wi-Fi 활성화·타이머 | `POST/GET /public/passes/{id}` + `remainingSeconds` |
@@ -20,6 +21,7 @@
 | 리워드 선택지 조회 | `GET /public/rewards/grants/{grantId}/options` |
 | 즉시/7일 쿠폰 선택 | `POST /public/rewards/{grantId}/choose` |
 | 쿠폰함·쿠폰 사용 | `GET /public/coupons`, `POST /public/coupons/{id}/redeem` |
+| 개인정보 안내 | `GET /public/stores/{id}/privacy-notice` |
 | 즉시 혜택 소비 | `reward_redemptions`, 다음 주문 자동 소비, Wi-Fi 종일권 |
 | Admin 로그인 | `POST /admin/login` |
 | Admin Refresh Rotation | `/admin/refresh`, `/admin/logout`, `/admin/me` |
@@ -27,6 +29,7 @@
 | Wi-Fi 정책 | `/admin/wifi/policies` 조회·simulate·publish + 버전 충돌 |
 | AI 추천 1건 승인·거절 | `/admin/ai/recommendations/*` |
 | AI 추천 수정·검증 | `PATCH` 후 할인율·메뉴·시간·Promotion 생성 검증 |
+| 공통 오류 규격 | Problem JSON + requestId 예외 핸들러 |
 | 60초 만료 루프 | FastAPI lifespan `expire_due_passes` |
 | 별도 Worker/Redis/Celery | 사용하지 않음 |
 | Docker Compose 배포 | 사용하지 않음 |

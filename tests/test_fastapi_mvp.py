@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal, init_db
 from app.main import app
-from app.models import AIRecommendation, Order, Product, Store, WiFiPass
+from app.models import AIRecommendation, DailySpendBalance, Order, Product, RewardGrant, Store, WiFiPass
 from app.seed import seed
 from app.time import business_date, db_now
 
@@ -426,3 +426,60 @@ def test_admin_can_edit_then_accept_ai_recommendation(client):
     )
     assert accepted.status_code == 201
     assert accepted.json()["data"]["status"] == "ACCEPTED"
+
+
+def test_partial_and_full_refund_roll_back_daily_spend_and_revoke_unused_grants(client):
+    order = create_order(
+        client,
+        "ORDER-REFUND",
+        total=10000,
+        item_unit_price=10000,
+        phone="010-5555-0003",
+    )
+    order_id = order.json()["data"]["orderId"]
+    store_id, _ = ids()
+    first_refund = client.post(
+        f"/pos/orders/{order_id}/refund",
+        headers={"X-Demo-Key": "demo-key", "Idempotency-Key": "refund-001"},
+        json={"storeId": store_id, "refundAmount": 5000},
+    )
+    replay = client.post(
+        f"/pos/orders/{order_id}/refund",
+        headers={"X-Demo-Key": "demo-key", "Idempotency-Key": "refund-001"},
+        json={"storeId": store_id, "refundAmount": 5000},
+    )
+    assert first_refund.status_code == 200
+    assert replay.json() == first_refund.json()
+    assert first_refund.json()["data"]["status"] == "PARTIALLY_REFUNDED"
+    with SessionLocal() as db:
+        saved_order = db.get(Order, order_id)
+        balance = db.scalar(
+            select(DailySpendBalance).where(
+                DailySpendBalance.store_id == store_id,
+                DailySpendBalance.customer_key == saved_order.customer_key,
+                DailySpendBalance.business_date == saved_order.business_date,
+            )
+        )
+        grants = db.scalars(select(RewardGrant).where(RewardGrant.store_id == store_id)).all()
+        assert balance is not None
+        assert balance.total_amount == 5000
+        assert any(grant.status == "REVOKED" for grant in grants)
+
+    full_refund = client.post(
+        f"/pos/orders/{order_id}/refund",
+        headers={"X-Demo-Key": "demo-key"},
+        json={"storeId": store_id, "refundAmount": 5000},
+    )
+    assert full_refund.status_code == 200
+    assert full_refund.json()["data"]["status"] == "REFUNDED"
+
+
+def test_privacy_notice_and_problem_error_contract(client):
+    store_id, _ = ids()
+    privacy = client.get(f"/public/stores/{store_id}/privacy-notice")
+    assert privacy.status_code == 200
+    assert privacy.json()["data"]["automaticDeletion"] is True
+    invalid = client.post("/pos/orders", json={})
+    assert invalid.status_code == 422
+    assert invalid.json()["code"] == "REQUEST_VALIDATION_ERROR"
+    assert "requestId" in invalid.json()

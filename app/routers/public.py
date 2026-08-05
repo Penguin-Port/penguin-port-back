@@ -525,6 +525,24 @@ def list_coupons(
     )
 
 
+@router.get("/public/stores/{store_id}/privacy-notice")
+def privacy_notice(store_id: str, db: Session = Depends(get_db)):
+    store = db.get(Store, store_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail="매장을 찾을 수 없습니다.")
+    return success(
+        {
+            "storeId": store.id,
+            "storeName": store.name,
+            "phoneStorage": "전화번호는 원문 대신 lookup hash와 last4로 연결됩니다.",
+            "phoneRetentionDays": settings.phone_retention_days,
+            "automaticDeletion": True,
+            "purpose": "Wi-Fi 이용권 연결, OTP 인증, 점주 보호를 위한 최소 정보 처리",
+            "supportNote": "불법 접속·분쟁 대응에 필요한 감사 정보는 별도 보존 기간을 적용합니다.",
+        }
+    )
+
+
 @router.post("/public/coupons/{coupon_id}/redeem")
 def redeem_coupon(
     coupon_id: str,

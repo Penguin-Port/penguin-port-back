@@ -17,11 +17,15 @@ from app.models import (
     OrderClaim,
     OrderItem,
     Product,
+    Coupon,
+    DailySpendBalance,
+    RewardGrant,
+    RewardTier,
     RewardRedemption,
     Store,
     WiFiPass,
 )
-from app.schemas import PosOrderRequest
+from app.schemas import PosOrderRequest, PosRefundRequest
 from app.services.policy import additional_order_minutes, expiry_after, first_order_minutes
 from app.services.rewards import evaluate_grants
 from app.security import customer_key, phone_last4, phone_lookup_hash
@@ -40,6 +44,16 @@ def _customer_key(payload: PosOrderRequest) -> str:
 
 
 def _request_hash(payload: PosOrderRequest) -> str:
+    canonical = json.dumps(
+        payload.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _payload_hash(payload) -> str:
     canonical = json.dumps(
         payload.model_dump(mode="json"),
         ensure_ascii=False,
@@ -238,6 +252,95 @@ def create_order(
                 key=idempotency_key,
                 request_hash=request_hash,
                 status_code=201,
+                response_json=response,
+            )
+        )
+    db.commit()
+    return response
+
+
+@router.post("/pos/orders/{order_id}/refund")
+def refund_order(
+    order_id: str,
+    payload: PosRefundRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_demo_key),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
+    order = db.get(Order, order_id)
+    if order is None or order.store_id != payload.storeId:
+        raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
+    request_hash = _payload_hash(payload)
+    scope = f"refund:{order.id}"
+    if idempotency_key:
+        if not 8 <= len(idempotency_key) <= 200:
+            raise HTTPException(status_code=422, detail="Idempotency-Key 길이가 올바르지 않습니다.")
+        replay = _existing_idempotent_response(
+            db, scope=scope, key=idempotency_key, request_hash=request_hash
+        )
+        if replay is not None:
+            return replay
+    refundable = order.total_amount - order.refunded_amount
+    refund_amount = payload.refundAmount if payload.refundAmount is not None else refundable
+    if refund_amount <= 0 or refund_amount > refundable:
+        raise HTTPException(status_code=422, detail="환불 가능 금액을 초과했습니다.")
+
+    balance = db.scalar(
+        select(DailySpendBalance).where(
+            DailySpendBalance.store_id == order.store_id,
+            DailySpendBalance.business_date == order.business_date,
+            DailySpendBalance.customer_key == order.customer_key,
+        )
+    )
+    order.refunded_amount += refund_amount
+    order.status = "REFUNDED" if order.refunded_amount == order.total_amount else "PARTIALLY_REFUNDED"
+    new_daily_total = balance.total_amount if balance else 0
+    if balance is not None:
+        balance.total_amount = max(0, balance.total_amount - refund_amount)
+        balance.version += 1
+        new_daily_total = balance.total_amount
+
+    grants = db.scalars(
+        select(RewardGrant).where(
+            RewardGrant.store_id == order.store_id,
+            RewardGrant.business_date == order.business_date,
+            RewardGrant.customer_key == order.customer_key,
+            RewardGrant.status.in_(["AWAITING_CHOICE", "FULFILLED"]),
+        )
+    ).all()
+    revoked_grants = []
+    for grant in grants:
+        tier = db.get(RewardTier, grant.tier_id)
+        if tier is not None and tier.threshold_amount > new_daily_total:
+            if grant.status == "AWAITING_CHOICE":
+                grant.status = "REVOKED"
+                revoked_grants.append(grant.id)
+            coupon = db.scalar(
+                select(Coupon).where(
+                    Coupon.grant_id == grant.id,
+                    Coupon.status == "AVAILABLE",
+                )
+            )
+            if coupon is not None:
+                coupon.status = "REVOKED"
+
+    response = success(
+        {
+            "orderId": order.id,
+            "status": order.status,
+            "refundedAmount": order.refunded_amount,
+            "refundAmount": refund_amount,
+            "dailyTotal": new_daily_total,
+            "revokedGrantIds": revoked_grants,
+        }
+    )
+    if idempotency_key:
+        db.add(
+            IdempotencyRecord(
+                scope=scope,
+                key=idempotency_key,
+                request_hash=request_hash,
+                status_code=200,
                 response_json=response,
             )
         )
