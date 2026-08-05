@@ -63,6 +63,20 @@ class AdminLogoutRequest(BaseModel):
     refreshToken: str | None = None
 
 
+class AdminTeamMemberCreateRequest(BaseModel):
+    storeId: str
+    username: str = Field(min_length=3, max_length=120, pattern=r"^[A-Za-z0-9_.-]+$")
+    password: str = Field(min_length=8, max_length=256)
+    role: str = Field(default="STAFF", pattern=r"^(OWNER|MANAGER|STAFF|VIEWER)$")
+
+
+class AdminTeamMemberPatchRequest(BaseModel):
+    storeId: str
+    role: str | None = Field(default=None, pattern=r"^(OWNER|MANAGER|STAFF|VIEWER)$")
+    isActive: bool | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=256)
+
+
 class AdminPassExtendRequest(BaseModel):
     storeId: str | None = None
     minutes: int = Field(ge=1)

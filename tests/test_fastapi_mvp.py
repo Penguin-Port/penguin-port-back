@@ -360,6 +360,41 @@ def test_admin_refresh_rotates_and_logout_revokes_refresh_token(client):
     )
 
 
+def test_owner_can_manage_fastapi_admin_team(client):
+    store_id, _ = ids()
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+    listed = client.get("/admin/team", headers=auth)
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["role"] == "OWNER"
+
+    created = client.post(
+        "/admin/team",
+        headers=auth,
+        json={
+            "storeId": store_id,
+            "username": "team-staff",
+            "password": "team-password",
+            "role": "STAFF",
+        },
+    )
+    assert created.status_code == 201
+    member = created.json()["data"]
+    assert member["isActive"] is True
+
+    updated = client.patch(
+        f"/admin/team/{member['adminId']}",
+        headers=auth,
+        json={"storeId": store_id, "role": "MANAGER", "isActive": False},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["data"]["isActive"] is False
+    assert client.post(
+        "/admin/login",
+        json={"username": "team-staff", "password": "team-password"},
+    ).status_code == 401
+
+
 def test_admin_can_simulate_and_publish_wifi_policy(client):
     login = client.post("/admin/login", json={"username": "owner", "password": "password"})
     token = login.json()["data"]["accessToken"]

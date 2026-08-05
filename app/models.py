@@ -298,6 +298,10 @@ class AdminUser(Base):
     username: Mapped[str] = mapped_column(String(120))
     password_hash: Mapped[str] = mapped_column(String(256))
     role: Mapped[str] = mapped_column(String(20), default="OWNER")
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), default=db_now, nullable=True
+    )
 
 
 class RefreshTokenSession(Base):

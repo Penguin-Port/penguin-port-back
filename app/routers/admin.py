@@ -2,10 +2,17 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth import decode_token, hash_token, issue_token, require_admin, verify_password
+from app.auth import (
+    decode_token,
+    hash_password,
+    hash_token,
+    issue_token,
+    require_admin,
+    verify_password,
+)
 from app.config import settings
 from app.db import get_db
 from app.http import success
@@ -26,6 +33,8 @@ from app.models import (
 from app.schemas import (
     AdminLoginRequest,
     AdminLogoutRequest,
+    AdminTeamMemberCreateRequest,
+    AdminTeamMemberPatchRequest,
     AdminPassExpireRequest,
     AdminPassExtendRequest,
     AdminRefreshRequest,
@@ -62,11 +71,12 @@ router = APIRouter(tags=["Admin"])
 
 REFRESH_COOKIE = "smartpass_refresh"
 WRITE_ROLES = {"OWNER", "MANAGER"}
+TEAM_ROLES = {"OWNER", "MANAGER", "STAFF", "VIEWER"}
 
 
 def _admin_user(db: Session, claims: dict) -> AdminUser:
     user = db.get(AdminUser, claims.get("adminId"))
-    if user is None:
+    if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="관리자를 찾을 수 없습니다.")
     return user
 
@@ -75,6 +85,13 @@ def _require_write_role(db: Session, claims: dict) -> AdminUser:
     user = _admin_user(db, claims)
     if user.role not in WRITE_ROLES:
         raise HTTPException(status_code=403, detail="이 작업을 수행할 관리자 권한이 없습니다.")
+    return user
+
+
+def _require_owner(db: Session, claims: dict) -> AdminUser:
+    user = _admin_user(db, claims)
+    if user.role != "OWNER":
+        raise HTTPException(status_code=403, detail="점주 권한이 필요한 작업입니다.")
     return user
 
 
@@ -133,7 +150,7 @@ def login(
     db: Session = Depends(get_db),
 ):
     user = db.scalar(select(AdminUser).where(AdminUser.username == payload.username))
-    if user is None or not verify_password(payload.password, user.password_hash):
+    if user is None or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
     refresh_token, _ = _new_refresh_session(db, user)
     data = _access_payload(user)
@@ -166,7 +183,7 @@ def refresh(
     ):
         raise HTTPException(status_code=401, detail="Refresh Token이 만료되었거나 폐기되었습니다.")
     user = db.get(AdminUser, session.admin_id)
-    if user is None:
+    if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="관리자를 찾을 수 없습니다.")
     session.revoked_at = db_now()
     new_refresh, new_session = _new_refresh_session(db, user)
@@ -212,8 +229,133 @@ def me(
             "storeId": user.store_id,
             "username": user.username,
             "role": user.role,
+            "isActive": user.is_active,
         }
     )
+
+
+def _team_member_data(user: AdminUser) -> dict:
+    return {
+        "adminId": user.id,
+        "storeId": user.store_id,
+        "username": user.username,
+        "role": user.role,
+        "isActive": user.is_active,
+        "createdAt": aware(user.created_at).isoformat() if user.created_at else None,
+    }
+
+
+@router.get("/admin/team")
+def list_team(
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    members = db.scalars(
+        select(AdminUser)
+        .where(AdminUser.store_id == claims["storeId"])
+        .order_by(AdminUser.username.asc())
+    ).all()
+    return success([_team_member_data(member) for member in members])
+
+
+@router.post("/admin/team", status_code=201)
+def create_team_member(
+    payload: AdminTeamMemberCreateRequest,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    actor = _require_owner(db, claims)
+    if payload.storeId != actor.store_id:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    if db.scalar(select(AdminUser).where(AdminUser.username == payload.username)) is not None:
+        raise HTTPException(status_code=409, detail="이미 사용 중인 관리자 아이디입니다.")
+    member = AdminUser(
+        store_id=actor.store_id,
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        is_active=True,
+    )
+    db.add(member)
+    db.flush()
+    record_audit(
+        db,
+        store_id=actor.store_id,
+        action="ADMIN_TEAM_MEMBER_CREATED",
+        resource_type="AdminUser",
+        resource_id=member.id,
+        actor_type="ADMIN",
+        actor_id=actor.id,
+        metadata={"role": member.role},
+    )
+    publish_event(
+        db,
+        store_id=actor.store_id,
+        event_type="admin.team.member_created",
+        aggregate_type="AdminUser",
+        aggregate_id=member.id,
+        payload={"adminId": member.id, "username": member.username, "role": member.role},
+    )
+    db.commit()
+    return success(_team_member_data(member), status=201)
+
+
+@router.patch("/admin/team/{admin_id}")
+def update_team_member(
+    admin_id: str,
+    payload: AdminTeamMemberPatchRequest,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    actor = _require_owner(db, claims)
+    if payload.storeId != actor.store_id:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    member = db.get(AdminUser, admin_id)
+    if member is None or member.store_id != actor.store_id:
+        raise HTTPException(status_code=404, detail="팀 관리자를 찾을 수 없습니다.")
+    if member.id == actor.id and payload.isActive is False:
+        raise HTTPException(status_code=422, detail="현재 로그인한 점주는 비활성화할 수 없습니다.")
+    next_role = payload.role or member.role
+    next_active = member.is_active if payload.isActive is None else payload.isActive
+    if member.role == "OWNER" and (next_role != "OWNER" or not next_active):
+        owner_count = db.scalar(
+            select(func.count(AdminUser.id)).where(
+                AdminUser.store_id == actor.store_id,
+                AdminUser.role == "OWNER",
+                AdminUser.is_active.is_(True),
+            )
+        ) or 0
+        if owner_count <= 1:
+            raise HTTPException(status_code=409, detail="활성 점주는 최소 한 명 이상 필요합니다.")
+    member.role = next_role
+    member.is_active = next_active
+    if payload.password:
+        member.password_hash = hash_password(payload.password)
+    record_audit(
+        db,
+        store_id=actor.store_id,
+        action="ADMIN_TEAM_MEMBER_UPDATED",
+        resource_type="AdminUser",
+        resource_id=member.id,
+        actor_type="ADMIN",
+        actor_id=actor.id,
+        metadata={"role": member.role, "isActive": member.is_active},
+    )
+    if not member.is_active:
+        db.query(RefreshTokenSession).filter(
+            RefreshTokenSession.admin_id == member.id,
+            RefreshTokenSession.revoked_at.is_(None),
+        ).update({RefreshTokenSession.revoked_at: db_now()}, synchronize_session=False)
+    publish_event(
+        db,
+        store_id=actor.store_id,
+        event_type="admin.team.member_updated",
+        aggregate_type="AdminUser",
+        aggregate_id=member.id,
+        payload={"adminId": member.id, "role": member.role, "isActive": member.is_active},
+    )
+    db.commit()
+    return success(_team_member_data(member))
 
 
 @router.get("/admin/events")
