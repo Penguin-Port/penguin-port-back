@@ -90,6 +90,15 @@ class RecommendationRejectRequest(BaseModel):
     reason: str = ""
 
 
+class RecommendationGenerateRequest(BaseModel):
+    storeId: str
+    type: str = Field(
+        default="TIME_SALE",
+        pattern=r"^(TIME_SALE|SALES_SUMMARY|INVENTORY_PROMOTION|MENU_TREND)$",
+    )
+    businessDate: date | None = None
+
+
 class PolicyTierRequest(BaseModel):
     minAmount: int = Field(ge=0)
     minutes: int = Field(ge=0)
