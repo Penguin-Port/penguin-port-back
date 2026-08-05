@@ -30,6 +30,7 @@ from app.services.policy import additional_order_minutes, expiry_after, first_or
 from app.services.rewards import evaluate_grants
 from app.security import customer_key, phone_last4, phone_lookup_hash
 from app.services.audit import record_audit
+from app.services.events import publish_event
 from app.services.wifi import pass_data
 from app.time import business_date, db_now
 
@@ -256,6 +257,19 @@ def create_order(
                 response_json=response,
             )
         )
+    publish_event(
+        db,
+        store_id=store.id,
+        event_type="order.created",
+        aggregate_type="Order",
+        aggregate_id=order.id,
+        payload={
+            "orderId": order.id,
+            "externalOrderId": order.external_order_id,
+            "totalAmount": order.total_amount,
+            "wifiPassId": wifi_pass.id,
+        },
+    )
     db.commit()
     return response
 
@@ -353,6 +367,18 @@ def refund_order(
         resource_id=order.id,
         actor_type="POS_CLIENT",
         metadata={"refundAmount": refund_amount, "reason": payload.reason},
+    )
+    publish_event(
+        db,
+        store_id=order.store_id,
+        event_type="order.refunded",
+        aggregate_type="Order",
+        aggregate_id=order.id,
+        payload={
+            "orderId": order.id,
+            "refundAmount": refund_amount,
+            "status": order.status,
+        },
     )
     db.commit()
     return response

@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -44,6 +45,8 @@ from app.services.analytics import (
 )
 from app.services.audit import record_audit
 from app.services.demo_network import revoke
+from app.services.events import history as event_history, stream_events
+from app.services.events import publish_event
 from app.services.inventory import calculate_risk_score, inventory_data, scan_inventory
 from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.recommendations import (
@@ -211,6 +214,36 @@ def me(
             "role": user.role,
         }
     )
+
+
+@router.get("/admin/events")
+def admin_events(
+    request: Request,
+    store_id: str | None = Query(default=None, alias="storeId"),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    requested_store = store_id or claims["storeId"]
+    if requested_store != claims["storeId"]:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    events = event_history(
+        db,
+        store_id=requested_store,
+        last_event_id=last_event_id,
+    )
+    response = StreamingResponse(
+        stream_events(
+            store_id=requested_store,
+            initial=events,
+            last_event_id=last_event_id,
+        ),
+        media_type="text/event-stream",
+    )
+    response.headers["Cache-Control"] = "no-cache"
+    response.headers["Connection"] = "keep-alive"
+    response.headers["X-Accel-Buffering"] = "no"
+    return response
 
 
 def _store_for_admin(db: Session, claims: dict) -> Store:
@@ -771,6 +804,15 @@ def generate_recommendations(
             "recommendationIds": [item.id for item in generated],
         },
     )
+    for item in generated:
+        publish_event(
+            db,
+            store_id=store.id,
+            event_type="ai.recommendation.created",
+            aggregate_type="AIRecommendation",
+            aggregate_id=item.id,
+            payload={"recommendationId": item.id, "type": item.type, "status": item.status},
+        )
     db.commit()
     return success([_recommendation_data(item) for item in generated])
 
@@ -875,6 +917,14 @@ def edit_recommendation(
         actor_id=claims.get("adminId"),
         metadata={"version": recommendation.version},
     )
+    publish_event(
+        db,
+        store_id=recommendation.store_id,
+        event_type="ai.recommendation.edited",
+        aggregate_type="AIRecommendation",
+        aggregate_id=recommendation.id,
+        payload={"recommendationId": recommendation.id, "version": recommendation.version},
+    )
     db.commit()
     return success(
         {
@@ -917,6 +967,7 @@ def accept_recommendation(
     recommendation.version += 1
     recommendation.decided_at = db_now()
     db.add(promotion)
+    db.flush()
     record_audit(
         db,
         store_id=recommendation.store_id,
@@ -926,6 +977,19 @@ def accept_recommendation(
         actor_type="ADMIN",
         actor_id=claims.get("adminId"),
         metadata={"promotionTitle": promotion.title},
+    )
+    publish_event(
+        db,
+        store_id=recommendation.store_id,
+        event_type="promotion.scheduled",
+        aggregate_type="Promotion",
+        aggregate_id=promotion.id,
+        payload={
+            "promotionId": promotion.id,
+            "recommendationId": recommendation.id,
+            "startsAt": promotion.starts_at.isoformat(),
+            "endsAt": promotion.ends_at.isoformat(),
+        },
     )
     db.commit()
     return success(
@@ -969,6 +1033,14 @@ def reject_recommendation(
         actor_type="ADMIN",
         actor_id=claims.get("adminId"),
         metadata={"reasonProvided": bool(payload and payload.reason)},
+    )
+    publish_event(
+        db,
+        store_id=recommendation.store_id,
+        event_type="ai.recommendation.rejected",
+        aggregate_type="AIRecommendation",
+        aggregate_id=recommendation.id,
+        payload={"recommendationId": recommendation.id, "version": recommendation.version},
     )
     db.commit()
     return success(

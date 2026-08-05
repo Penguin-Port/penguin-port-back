@@ -33,6 +33,7 @@ from app.schemas import (
 )
 from app.services.demo_network import authorize
 from app.services.audit import record_audit
+from app.services.events import publish_event
 from app.services.notifications import generate_otp, send_otp as deliver_otp
 from integrations.providers import get_notification_provider
 from app.services.policy import additional_order_minutes, first_order_minutes
@@ -124,6 +125,14 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
             WiFiPass.customer_key == order.customer_key,
             WiFiPass.business_date == order.business_date,
         )
+    )
+    publish_event(
+        db,
+        store_id=order.store_id,
+        event_type="order.claim.exchanged",
+        aggregate_type="OrderClaim",
+        aggregate_id=claim.id,
+        payload={"orderId": order.id, "passId": wifi_pass.id if wifi_pass else None},
     )
     db.commit()
     return success(
@@ -281,6 +290,14 @@ def activate_pass(
     wifi_pass.status = "ACTIVE"
     wifi_pass.activated_at = db_now()
     wifi_pass.network_reference = authorize(wifi_pass.id)
+    publish_event(
+        db,
+        store_id=wifi_pass.store_id,
+        event_type="wifi.pass.activated",
+        aggregate_type="WiFiPass",
+        aggregate_id=wifi_pass.id,
+        payload={"passId": wifi_pass.id, "networkReference": wifi_pass.network_reference},
+    )
     db.commit()
     return success(pass_data(wifi_pass))
 
