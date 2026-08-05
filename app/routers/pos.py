@@ -11,7 +11,16 @@ from sqlalchemy.orm import Session
 from app.auth import require_demo_key
 from app.db import get_db
 from app.http import success
-from app.models import IdempotencyRecord, Order, OrderClaim, OrderItem, Product, Store, WiFiPass
+from app.models import (
+    IdempotencyRecord,
+    Order,
+    OrderClaim,
+    OrderItem,
+    Product,
+    RewardRedemption,
+    Store,
+    WiFiPass,
+)
 from app.schemas import PosOrderRequest
 from app.services.policy import additional_order_minutes, expiry_after, first_order_minutes
 from app.services.rewards import evaluate_grants
@@ -158,6 +167,31 @@ def create_order(
     )
     db.add(order)
     db.flush()
+
+    applied_rewards = []
+    redemption = db.scalar(
+        select(RewardRedemption)
+        .where(
+            RewardRedemption.store_id == store.id,
+            RewardRedemption.customer_key == customer_key,
+            RewardRedemption.business_date == day,
+            RewardRedemption.status == "AVAILABLE",
+        )
+        .order_by(RewardRedemption.created_at.asc(), RewardRedemption.id.asc())
+        .limit(1)
+    )
+    if redemption is not None:
+        redemption.status = "CONSUMED"
+        redemption.order_id = order.id
+        redemption.consumed_at = now
+        applied_rewards.append(
+            {
+                "redemptionId": redemption.id,
+                "grantId": redemption.grant_id,
+                "benefit": redemption.benefit_snapshot,
+                "status": redemption.status,
+            }
+        )
     for item, product, unit_price in resolved_items:
         db.add(
             OrderItem(
@@ -189,6 +223,7 @@ def create_order(
             "businessDate": day.isoformat(),
             "dailyTotal": daily_total,
             "newRewardGrantIds": [grant.id for grant in grants],
+            "appliedRewards": applied_rewards,
             "wifiPass": {
                 **pass_data(wifi_pass),
                 "breakdown": [wifi_pass.policy_snapshot],

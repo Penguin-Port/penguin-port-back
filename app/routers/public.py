@@ -20,6 +20,7 @@ from app.models import (
     OtpChallenge,
     RewardBenefit,
     RewardGrant,
+    RewardRedemption,
     RewardTier,
     Store,
     WiFiPass,
@@ -36,7 +37,7 @@ from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.rewards import choose_benefit
 from app.services.wifi import expire_due_passes, pass_data
 from app.security import masked_phone, phone_lookup_hash
-from app.time import business_date, db_now
+from app.time import business_date, business_day_end, db_now
 
 
 router = APIRouter(tags=["Public"])
@@ -408,12 +409,66 @@ def choose_reward(
     benefit = db.get(RewardBenefit, payload.benefitId)
     if benefit is None:
         raise HTTPException(status_code=404, detail="리워드 혜택을 찾을 수 없습니다.")
+    current_order = None
+    if payload.orderId:
+        current_order = db.get(Order, payload.orderId)
+        if (
+            current_order is None
+            or current_order.store_id != grant.store_id
+            or current_order.customer_key != grant.customer_key
+        ):
+            raise HTTPException(status_code=404, detail="현재 주문을 찾을 수 없습니다.")
     try:
         coupon, benefit_data = choose_benefit(
             db, grant=grant, benefit=benefit, fulfill_mode=payload.fulfillMode
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    immediate = None
+    if payload.fulfillMode == "IMMEDIATE":
+        if benefit.benefit_type == "WIFI_DAY_PASS":
+            store = db.get(Store, grant.store_id)
+            wifi_pass = db.scalar(
+                select(WiFiPass).where(
+                    WiFiPass.store_id == grant.store_id,
+                    WiFiPass.customer_key == grant.customer_key,
+                    WiFiPass.business_date == grant.business_date,
+                )
+            )
+            if store is None or wifi_pass is None:
+                raise HTTPException(status_code=422, detail="종일권을 적용할 이용권이 없습니다.")
+            if wifi_pass.status in {"BLOCKED", "CANCELLED", "FAILED"}:
+                raise HTTPException(status_code=409, detail="현재 이용권에는 종일권을 적용할 수 없습니다.")
+            wifi_pass.expires_at = max(
+                wifi_pass.expires_at,
+                business_day_end(
+                    grant.business_date,
+                    timezone_name=store.timezone,
+                    cutoff=store.business_day_cutoff,
+                ),
+            )
+            wifi_pass.version += 1
+            immediate = {"type": "WIFI_DAY_PASS", "wifiPass": pass_data(wifi_pass)}
+        redemption_status = "CONSUMED" if current_order is not None else "AVAILABLE"
+        redemption = RewardRedemption(
+            store_id=grant.store_id,
+            grant_id=grant.id,
+            benefit_id=benefit.id,
+            customer_key=grant.customer_key,
+            business_date=grant.business_date,
+            status=redemption_status,
+            order_id=current_order.id if current_order is not None else None,
+            benefit_snapshot=benefit_data,
+            consumed_at=db_now() if current_order is not None else None,
+        )
+        db.add(redemption)
+        db.flush()
+        immediate = {
+            **(immediate or {}),
+            "redemptionId": redemption.id,
+            "status": redemption.status,
+            "orderId": redemption.order_id,
+        }
     db.commit()
     return success(
         {
@@ -421,6 +476,7 @@ def choose_reward(
             "status": grant.status,
             "fulfillMode": grant.fulfill_mode,
             "benefit": benefit_data,
+            "immediate": immediate,
             "coupon": (
                 {
                     "couponId": coupon.id,

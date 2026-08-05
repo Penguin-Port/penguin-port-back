@@ -39,3 +39,23 @@ def business_date(
     if local_value.time().replace(tzinfo=None) < cutoff_time:
         return local_value.date() - timedelta(days=1)
     return local_value.date()
+
+
+def business_day_end(
+    value: date,
+    *,
+    timezone_name: str = "Asia/Seoul",
+    cutoff: str = "00:00",
+) -> datetime:
+    """Return the next business-day cutoff as a UTC-naive database datetime."""
+
+    try:
+        zone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError:
+        zone = ZoneInfo("Asia/Seoul")
+    try:
+        cutoff_time = time.fromisoformat(cutoff)
+    except ValueError:
+        cutoff_time = time(0, 0)
+    local_end = datetime.combine(value + timedelta(days=1), cutoff_time, tzinfo=zone)
+    return local_end.astimezone(timezone.utc).replace(tzinfo=None)

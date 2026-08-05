@@ -27,7 +27,13 @@ def ids():
 
 
 def create_order(
-    client, external_id="ORDER-1", total=5000, headers=None, paid_at=None, item_unit_price=None
+    client,
+    external_id="ORDER-1",
+    total=5000,
+    headers=None,
+    paid_at=None,
+    item_unit_price=None,
+    phone="010-1234-5678",
 ):
     store_id, product_id = ids()
     request_headers = {"X-Demo-Key": "demo-key", **(headers or {})}
@@ -37,7 +43,7 @@ def create_order(
         json={
             "storeId": store_id,
             "externalOrderId": external_id,
-            "customer": {"phone": "010-1234-5678"},
+            "customer": {"phone": phone},
             "items": [
                 {
                     "productId": product_id,
@@ -49,6 +55,29 @@ def create_order(
             "paidAt": paid_at or "2026-08-01T12:00:00+09:00",
         },
     )
+
+
+def portal_session(client, order_data, phone="010-1234-5678"):
+    exchange = client.post(
+        "/public/order-claims/exchange",
+        json={"orderClaim": order_data["orderClaim"]["token"]},
+    )
+    assert exchange.status_code == 200
+    exchange_data = exchange.json()["data"]
+    send = client.post(
+        "/public/otp/send",
+        json={
+            "verificationTicket": exchange_data["verificationTicket"],
+            "phone": phone,
+        },
+    )
+    assert send.status_code == 201
+    confirm = client.post(
+        "/public/otp/confirm",
+        json={"challengeId": send.json()["data"]["challengeId"], "code": "123456"},
+    )
+    assert confirm.status_code == 200
+    return confirm.json()["data"]["portalSession"]
 
 
 def test_pdf_customer_flow(client):
@@ -247,3 +276,52 @@ def test_phone_is_not_persisted_as_plaintext(client):
         assert order.phone is None
         assert order.phone_lookup_hash
         assert order.phone_last4 == "5678"
+
+
+def test_coupon_can_be_listed_and_redeemed(client):
+    response = create_order(client, "ORDER-COUPON-LIFECYCLE", phone="010-5555-0001")
+    data = response.json()["data"]
+    session = portal_session(client, data, phone="010-5555-0001")
+    options = client.get(
+        f"/public/rewards/grants/{data['newRewardGrantIds'][0]}/options",
+        headers={"X-Portal-Session": session},
+    )
+    benefit_id = options.json()["data"]["options"][0]["benefitId"]
+    chosen = client.post(
+        f"/public/rewards/{data['newRewardGrantIds'][0]}/choose",
+        headers={"X-Portal-Session": session},
+        json={"benefitId": benefit_id, "fulfillMode": "COUPON_7D"},
+    )
+    coupon_id = chosen.json()["data"]["coupon"]["couponId"]
+
+    listed = client.get("/public/coupons", headers={"X-Portal-Session": session})
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["couponId"] == coupon_id
+    redeemed = client.post(
+        f"/public/coupons/{coupon_id}/redeem",
+        headers={"X-Portal-Session": session},
+    )
+    assert redeemed.status_code == 200
+    assert redeemed.json()["data"]["status"] == "REDEEMED"
+
+
+def test_immediate_reward_is_consumed_by_the_next_order(client):
+    first = create_order(client, "ORDER-IMMEDIATE-FIRST", phone="010-5555-0002")
+    first_data = first.json()["data"]
+    session = portal_session(client, first_data, phone="010-5555-0002")
+    options = client.get(
+        f"/public/rewards/grants/{first_data['newRewardGrantIds'][0]}/options",
+        headers={"X-Portal-Session": session},
+    )
+    benefit_id = options.json()["data"]["options"][0]["benefitId"]
+    chosen = client.post(
+        f"/public/rewards/{first_data['newRewardGrantIds'][0]}/choose",
+        headers={"X-Portal-Session": session},
+        json={"benefitId": benefit_id, "fulfillMode": "IMMEDIATE"},
+    )
+    assert chosen.status_code == 200
+    assert chosen.json()["data"]["immediate"]["status"] == "AVAILABLE"
+
+    second = create_order(client, "ORDER-IMMEDIATE-SECOND", phone="010-5555-0002")
+    assert second.status_code == 201
+    assert second.json()["data"]["appliedRewards"][0]["status"] == "CONSUMED"

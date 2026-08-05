@@ -195,6 +195,23 @@ class Coupon(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
 
 
+class RewardRedemption(Base):
+    __tablename__ = "reward_redemptions"
+    __table_args__ = (UniqueConstraint("grant_id", name="uq_reward_redemption_grant"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_value)
+    store_id: Mapped[str] = mapped_column(ForeignKey("stores.id"), index=True)
+    grant_id: Mapped[str] = mapped_column(ForeignKey("reward_grants.id"), unique=True)
+    benefit_id: Mapped[str] = mapped_column(ForeignKey("reward_benefits.id"))
+    customer_key: Mapped[str] = mapped_column(String(160), index=True)
+    business_date: Mapped[date] = mapped_column(Date, index=True)
+    status: Mapped[str] = mapped_column(String(20), default="AVAILABLE", index=True)
+    order_id: Mapped[str | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
+    benefit_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=db_now)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class AIRecommendation(Base):
     __tablename__ = "ai_recommendations"
 

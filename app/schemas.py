@@ -41,6 +41,7 @@ class OtpConfirmRequest(BaseModel):
 class RewardChooseRequest(BaseModel):
     benefitId: str
     fulfillMode: str = Field(pattern=r"^(IMMEDIATE|COUPON_7D)$")
+    orderId: str | None = None
 
 
 class AdminLoginRequest(BaseModel):

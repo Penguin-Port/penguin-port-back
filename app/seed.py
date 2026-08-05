@@ -75,6 +75,45 @@ def seed(
                         )
                     )
 
+        day_pass_tier = db.scalar(
+            select(RewardTier).where(
+                RewardTier.store_id == store.id,
+                RewardTier.threshold_amount == 20000,
+            )
+        )
+        if day_pass_tier is None:
+            day_pass_tier = RewardTier(
+                store_id=store.id,
+                name="2만원 리워드",
+                threshold_amount=20000,
+                sort_order=3,
+            )
+            db.add(day_pass_tier)
+            db.flush()
+        day_pass = db.scalar(
+            select(RewardBenefit).where(
+                RewardBenefit.tier_id == day_pass_tier.id,
+                RewardBenefit.benefit_type == "WIFI_DAY_PASS",
+            )
+        )
+        if day_pass is None:
+            db.add(
+                RewardBenefit(
+                    tier_id=day_pass_tier.id,
+                    benefit_type="WIFI_DAY_PASS",
+                    title="Wi-Fi 종일권",
+                    payload={"until": "BUSINESS_DAY_END"},
+                )
+            )
+            db.add(
+                RewardBenefit(
+                    tier_id=day_pass_tier.id,
+                    benefit_type="DRINK_DISCOUNT",
+                    title="음료 할인",
+                    payload={"discountRate": 10},
+                )
+            )
+
         admin_user = db.scalar(select(AdminUser).where(AdminUser.username == username))
         if admin_user is None:
             admin_user = AdminUser(
