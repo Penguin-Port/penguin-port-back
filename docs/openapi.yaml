@@ -555,12 +555,22 @@ paths:
       summary: Me
       operationId: me_admin_me_get
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -580,12 +590,22 @@ paths:
       summary: List Team
       operationId: list_team_admin_team_get
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -604,12 +624,22 @@ paths:
       summary: Create Team Member
       operationId: create_team_member_admin_team_post
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -641,12 +671,22 @@ paths:
         schema:
           type: string
           title: Admin Id
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -688,12 +728,22 @@ paths:
           - type: string
           - type: 'null'
           title: Last-Event-Id
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -713,12 +763,22 @@ paths:
       summary: Get Wifi Policy
       operationId: get_wifi_policy_admin_wifi_policies_get
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -738,12 +798,22 @@ paths:
       summary: Simulate Wifi Policy
       operationId: simulate_wifi_policy_admin_wifi_policies_simulate_post
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -769,12 +839,22 @@ paths:
       summary: Publish Wifi Policy
       operationId: publish_wifi_policy_admin_wifi_policies_publish_post
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -800,12 +880,22 @@ paths:
       summary: List Reward Tiers
       operationId: list_reward_tiers_admin_rewards_tiers_get
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -824,12 +914,22 @@ paths:
       summary: Upsert Reward Tier
       operationId: upsert_reward_tier_admin_rewards_tiers_post
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -864,12 +964,22 @@ paths:
           minimum: 1
           default: 100
           title: Limit
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -897,12 +1007,22 @@ paths:
           - type: string
           - type: 'null'
           title: Storeid
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -931,12 +1051,22 @@ paths:
             format: date
           - type: 'null'
           title: Businessdate
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -956,12 +1086,22 @@ paths:
       summary: List Inventory
       operationId: list_inventory_admin_inventory_get
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -980,12 +1120,22 @@ paths:
       summary: Upsert Inventory
       operationId: upsert_inventory_admin_inventory_post
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -1017,12 +1167,22 @@ paths:
         schema:
           type: string
           title: Item Id
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -1048,12 +1208,22 @@ paths:
       summary: Scan Inventory Risk
       operationId: scan_inventory_risk_admin_inventory_scan_post
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -1073,12 +1243,22 @@ paths:
       summary: Inventory Recommendations
       operationId: inventory_recommendations_admin_ai_inventory_get
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -1098,12 +1278,22 @@ paths:
       summary: Menu Trends
       operationId: menu_trends_admin_ai_menu_trends_get
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -1129,12 +1319,22 @@ paths:
         schema:
           type: string
           title: Pass Id
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -1166,18 +1366,77 @@ paths:
         schema:
           type: string
           title: Pass Id
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         content:
           application/json:
             schema:
               anyOf:
               - $ref: '#/components/schemas/AdminPassExpireRequest'
+              - type: 'null'
+              title: Payload
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /admin/passes/{pass_id}/block:
+    post:
+      tags:
+      - Admin
+      summary: Block Pass
+      operationId: block_pass_admin_passes__pass_id__block_post
+      parameters:
+      - name: pass_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Pass Id
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/AdminPassBlockRequest'
               - type: 'null'
               title: Payload
       responses:
@@ -1199,12 +1458,22 @@ paths:
       summary: Recommendations
       operationId: recommendations_admin_ai_recommendations_get
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       responses:
         '200':
           description: Successful Response
@@ -1224,12 +1493,22 @@ paths:
       summary: Generate Recommendations
       operationId: generate_recommendations_admin_ai_recommendations_generate_post
       parameters:
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -1261,12 +1540,22 @@ paths:
         schema:
           type: string
           title: Recommendation Id
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -1298,12 +1587,22 @@ paths:
         schema:
           type: string
           title: Recommendation Id
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         required: true
         content:
@@ -1335,12 +1634,22 @@ paths:
         schema:
           type: string
           title: Recommendation Id
-      - name: authorization
+      - name: Authorization
         in: header
-        required: true
+        required: false
         schema:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Authorization
+      - name: smartpass_access
+        in: cookie
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Smartpass Access
       requestBody:
         content:
           application/json:
@@ -1395,6 +1704,20 @@ components:
           title: Refreshtoken
       type: object
       title: AdminLogoutRequest
+    AdminPassBlockRequest:
+      properties:
+        storeId:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Storeid
+        reason:
+          type: string
+          maxLength: 240
+          title: Reason
+          default: ''
+      type: object
+      title: AdminPassBlockRequest
     AdminPassExpireRequest:
       properties:
         storeId:

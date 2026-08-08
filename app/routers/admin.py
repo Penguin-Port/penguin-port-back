@@ -853,6 +853,20 @@ def extend_pass(
         actor_id=claims.get("adminId"),
         metadata={"minutes": payload.minutes, "version": wifi_pass.version},
     )
+    publish_event(
+        db,
+        store_id=wifi_pass.store_id,
+        event_type="wifi.pass.extended",
+        aggregate_type="WiFiPass",
+        aggregate_id=wifi_pass.id,
+        payload={
+            "passId": wifi_pass.id,
+            "status": wifi_pass.status,
+            "version": wifi_pass.version,
+            "expiresAt": aware(wifi_pass.expires_at).isoformat(),
+            "minutes": payload.minutes,
+        },
+    )
     db.commit()
     return success(pass_data(wifi_pass))
 
@@ -887,6 +901,18 @@ def expire_pass(
             actor_type="ADMIN",
             actor_id=claims.get("adminId"),
             metadata={"version": wifi_pass.version},
+        )
+        publish_event(
+            db,
+            store_id=wifi_pass.store_id,
+            event_type="wifi.pass.expired",
+            aggregate_type="WiFiPass",
+            aggregate_id=wifi_pass.id,
+            payload={
+                "passId": wifi_pass.id,
+                "status": wifi_pass.status,
+                "version": wifi_pass.version,
+            },
         )
         db.commit()
     return success(pass_data(wifi_pass))

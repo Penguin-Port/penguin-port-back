@@ -204,6 +204,16 @@ def test_pdf_admin_flow_and_ai_decision(client):
     )
     assert expire.status_code == 200
     assert expire.json()["data"]["status"] == "EXPIRED"
+    with SessionLocal() as db:
+        event_types = set(
+            db.scalars(
+                select(BackendEvent.event_type).where(
+                    BackendEvent.aggregate_id == data["wifiPass"]["passId"]
+                )
+            ).all()
+        )
+    assert "wifi.pass.extended" in event_types
+    assert "wifi.pass.expired" in event_types
 
     recommendation = client.get("/admin/ai/recommendations", headers=auth).json()["data"][0]
     store_id, _ = ids()
@@ -215,7 +225,12 @@ def test_pdf_admin_flow_and_ai_decision(client):
     assert accepted.status_code == 201
 
 
-def test_admin_can_block_pass_and_publish_event(client):
+def test_admin_can_block_pass_and_publish_event(monkeypatch, client):
+    monkeypatch.setattr(
+        event_service,
+        "settings",
+        replace(event_service.settings, sse_max_seconds=0),
+    )
     order = create_order(client, "ORDER-BLOCK", phone="010-9999-0001")
     data = order.json()["data"]
     pass_id = data["wifiPass"]["passId"]
@@ -236,6 +251,11 @@ def test_admin_can_block_pass_and_publish_event(client):
     repeated = client.post(f"/admin/passes/{pass_id}/block", headers=auth)
     assert repeated.status_code == 200
     assert repeated.json()["data"]["version"] == initial_version + 1
+
+    stream = client.get("/admin/events", headers=auth)
+    assert stream.status_code == 200
+    assert "event: wifi.pass.blocked" in stream.text
+    assert f'"passId": "{pass_id}"' in stream.text
 
     store_id, _ = ids()
     with SessionLocal() as db:

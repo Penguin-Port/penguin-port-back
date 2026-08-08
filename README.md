@@ -163,6 +163,7 @@ RESET_DB=0 ./scripts/run_local.sh
 | GET | `/admin/passes/active` | 활성 이용권 폴링 목록 |
 | POST | `/admin/passes/{id}/extend` | 수동 연장 |
 | POST | `/admin/passes/{id}/expire` | 즉시 종료 + Demo revoke |
+| POST | `/admin/passes/{id}/block` | 관리자 이용권 차단 + Demo revoke |
 | GET | `/admin/events` | 관리자 실시간 SSE 이벤트 스트림 |
 | GET | `/admin/team` | 관리자 팀 목록 |
 | POST | `/admin/team` | 관리자 계정 생성 |
@@ -227,6 +228,8 @@ Customer Portal 연동 응답에는 다음 표시용 필드가 포함됩니다.
 - POS: `X-Demo-Key: $DEMO_KEY`
 - 고객: OTP 확인 응답의 `portalSession`을 `X-Portal-Session`에 전달
 - 관리자: 로그인 응답의 `accessToken`을 `Authorization: Bearer ...`에 전달하고, `refreshToken`은 HttpOnly 쿠키에도 설정됩니다.
+
+관리자 SSE 연결과 차단 API의 요청·응답 형식은 [`docs/MVP_DEMO_SPEC.md`](docs/MVP_DEMO_SPEC.md)를 참고합니다.
 
 ### 대표 호출 순서
 
