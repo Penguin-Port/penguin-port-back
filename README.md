@@ -229,7 +229,9 @@ Customer Portal 연동 응답에는 다음 표시용 필드가 포함됩니다.
 - 고객: OTP 확인 응답의 `portalSession`을 `X-Portal-Session`에 전달
 - 관리자: 로그인 응답의 `accessToken`을 `Authorization: Bearer ...`에 전달하고, `refreshToken`은 HttpOnly 쿠키에도 설정됩니다.
 
-관리자 SSE 연결과 차단 API의 요청·응답 형식은 [`docs/MVP_DEMO_SPEC.md`](docs/MVP_DEMO_SPEC.md)를 참고합니다.
+관리자 SSE 연결과 차단 API의 요청·응답 형식은
+[`docs/ADMIN_PASS_BLOCK_SSE_SPEC.md`](docs/ADMIN_PASS_BLOCK_SSE_SPEC.md)를 참고하고, 전체 시연
+순서는 [`docs/MVP_DEMO_SPEC.md`](docs/MVP_DEMO_SPEC.md)를 참고합니다.
 
 ### 대표 호출 순서
 
