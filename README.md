@@ -104,6 +104,13 @@ python3 -m app.seed
 기본 데모 계정은 `demo-owner / demo-password`입니다. 시드 명령은 다시 실행해도 같은 매장과
 PENDING AI 카드가 중복 생성되지 않습니다.
 
+주문·매출·활성 이용권·재고 위험까지 포함한 시연 데이터는 다음 명령으로 준비합니다. 이 명령도
+`DEMO-ORDER-*` 키와 상품/재고 식별자를 기준으로 멱등 동작합니다.
+
+```bash
+python3 -m app.demo_seed
+```
+
 ### 4. 실행
 
 ```bash
