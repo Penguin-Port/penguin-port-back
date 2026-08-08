@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import (
+    ACCESS_COOKIE,
     decode_token,
     hash_password,
     hash_token,
@@ -36,6 +37,7 @@ from app.schemas import (
     AdminTeamMemberCreateRequest,
     AdminTeamMemberPatchRequest,
     AdminPassExpireRequest,
+    AdminPassBlockRequest,
     AdminPassExtendRequest,
     AdminRefreshRequest,
     RecommendationDecisionRequest,
@@ -107,6 +109,18 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
     )
 
 
+def _set_access_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        ACCESS_COOKIE,
+        token,
+        max_age=settings.access_token_minutes * 60,
+        httponly=True,
+        secure=settings.secure_cookies,
+        samesite="none" if settings.secure_cookies else "lax",
+        path="/admin",
+    )
+
+
 def _new_refresh_session(db: Session, user: AdminUser) -> tuple[str, RefreshTokenSession]:
     session = RefreshTokenSession(
         admin_id=user.id,
@@ -157,6 +171,7 @@ def login(
     data["refreshToken"] = refresh_token
     data["refreshExpiresIn"] = settings.refresh_token_days * 24 * 60 * 60
     _set_refresh_cookie(response, refresh_token)
+    _set_access_cookie(response, data["accessToken"])
     db.commit()
     return success(data)
 
@@ -192,6 +207,7 @@ def refresh(
     data["refreshToken"] = new_refresh
     data["refreshExpiresIn"] = settings.refresh_token_days * 24 * 60 * 60
     _set_refresh_cookie(response, new_refresh)
+    _set_access_cookie(response, data["accessToken"])
     db.commit()
     return success(data)
 
@@ -214,6 +230,7 @@ def logout(
             session.revoked_at = db_now()
             db.commit()
     response.delete_cookie(REFRESH_COOKIE, path="/admin")
+    response.delete_cookie(ACCESS_COOKIE, path="/admin")
     return success({"loggedOut": True})
 
 
@@ -836,6 +853,20 @@ def extend_pass(
         actor_id=claims.get("adminId"),
         metadata={"minutes": payload.minutes, "version": wifi_pass.version},
     )
+    publish_event(
+        db,
+        store_id=wifi_pass.store_id,
+        event_type="wifi.pass.extended",
+        aggregate_type="WiFiPass",
+        aggregate_id=wifi_pass.id,
+        payload={
+            "passId": wifi_pass.id,
+            "status": wifi_pass.status,
+            "version": wifi_pass.version,
+            "expiresAt": aware(wifi_pass.expires_at).isoformat(),
+            "minutes": payload.minutes,
+        },
+    )
     db.commit()
     return success(pass_data(wifi_pass))
 
@@ -871,7 +902,74 @@ def expire_pass(
             actor_id=claims.get("adminId"),
             metadata={"version": wifi_pass.version},
         )
+        publish_event(
+            db,
+            store_id=wifi_pass.store_id,
+            event_type="wifi.pass.expired",
+            aggregate_type="WiFiPass",
+            aggregate_id=wifi_pass.id,
+            payload={
+                "passId": wifi_pass.id,
+                "status": wifi_pass.status,
+                "version": wifi_pass.version,
+            },
+        )
         db.commit()
+    return success(pass_data(wifi_pass))
+
+
+@router.post("/admin/passes/{pass_id}/block")
+def block_pass(
+    pass_id: str,
+    payload: AdminPassBlockRequest | None = None,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _require_write_role(db, claims)
+    wifi_pass = db.get(WiFiPass, pass_id)
+    if wifi_pass is None:
+        raise HTTPException(status_code=404, detail="이용권을 찾을 수 없습니다.")
+
+    requested_store = payload.storeId if payload else None
+    if wifi_pass.store_id != claims["storeId"] or (
+        requested_store and requested_store != wifi_pass.store_id
+    ):
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+
+    if wifi_pass.status == "BLOCKED":
+        return success(pass_data(wifi_pass))
+    if wifi_pass.status in {"EXPIRED", "CANCELLED", "FAILED"}:
+        raise HTTPException(status_code=409, detail="현재 상태의 이용권은 차단할 수 없습니다.")
+
+    reason = (payload.reason if payload else "").strip()
+    revoke(wifi_pass.network_reference or "")
+    wifi_pass.status = "BLOCKED"
+    wifi_pass.network_reference = None
+    wifi_pass.version += 1
+    record_audit(
+        db,
+        store_id=wifi_pass.store_id,
+        action="WIFI_PASS_BLOCKED",
+        resource_type="WiFiPass",
+        resource_id=wifi_pass.id,
+        actor_type="ADMIN",
+        actor_id=claims.get("adminId"),
+        metadata={"reason": reason, "version": wifi_pass.version},
+    )
+    publish_event(
+        db,
+        store_id=wifi_pass.store_id,
+        event_type="wifi.pass.blocked",
+        aggregate_type="WiFiPass",
+        aggregate_id=wifi_pass.id,
+        payload={
+            "passId": wifi_pass.id,
+            "status": wifi_pass.status,
+            "version": wifi_pass.version,
+            "reason": reason,
+        },
+    )
+    db.commit()
     return success(pass_data(wifi_pass))
 
 

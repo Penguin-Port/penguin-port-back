@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models import WiFiPass
 from app.services.demo_network import revoke
+from app.services.events import publish_event
 from app.time import aware, db_now, normalize
 
 
@@ -47,6 +48,19 @@ def expire_due_passes(db: Session, *, now: datetime | None = None) -> int:
         wifi_pass.status = "EXPIRED"
         wifi_pass.network_reference = None
         wifi_pass.version += 1
+        publish_event(
+            db,
+            store_id=wifi_pass.store_id,
+            event_type="wifi.pass.expired",
+            aggregate_type="WiFiPass",
+            aggregate_id=wifi_pass.id,
+            payload={
+                "passId": wifi_pass.id,
+                "status": wifi_pass.status,
+                "version": wifi_pass.version,
+                "source": "expiry_loop",
+            },
+        )
         count += 1
     if count:
         db.commit()

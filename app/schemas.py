@@ -86,6 +86,11 @@ class AdminPassExpireRequest(BaseModel):
     storeId: str | None = None
 
 
+class AdminPassBlockRequest(BaseModel):
+    storeId: str | None = None
+    reason: str = Field(default="", max_length=240)
+
+
 class RecommendationDecisionRequest(BaseModel):
     storeId: str
     version: int = Field(ge=1)

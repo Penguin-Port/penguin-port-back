@@ -5,9 +5,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import jwt
-from fastapi import Header, HTTPException
+from fastapi import Cookie, Header, HTTPException
 
 from app.config import settings
+
+
+ACCESS_COOKIE = "smartpass_access"
 
 
 def hash_password(password: str) -> str:
@@ -43,10 +46,20 @@ def decode_token(token: str) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="토큰이 유효하지 않습니다.") from exc
 
 
-def require_admin(authorization: str = Header(...)) -> dict[str, Any]:
-    if not authorization or not authorization.startswith("Bearer "):
+def require_admin(
+    authorization: str | None = Header(default=None, alias="Authorization"),
+    access_cookie: str | None = Cookie(default=None, alias=ACCESS_COOKIE),
+) -> dict[str, Any]:
+    if authorization:
+        if not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Bearer 토큰이 필요합니다.")
+        raw_token = authorization.removeprefix("Bearer ").strip()
+    else:
+        raw_token = access_cookie
+
+    if not raw_token:
         raise HTTPException(status_code=401, detail="Bearer 토큰이 필요합니다.")
-    claims = decode_token(authorization.removeprefix("Bearer ").strip())
+    claims = decode_token(raw_token)
     if claims.get("kind") != "admin":
         raise HTTPException(status_code=401, detail="관리자 토큰이 아닙니다.")
     return claims

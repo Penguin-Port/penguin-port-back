@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -6,7 +7,17 @@ from sqlalchemy import select
 
 from app.db import SessionLocal, init_db
 from app.main import app
-from app.models import AIRecommendation, DailySpendBalance, Order, Product, RewardGrant, Store, WiFiPass
+from app.models import (
+    AIRecommendation,
+    BackendEvent,
+    DailySpendBalance,
+    Order,
+    Product,
+    RewardGrant,
+    Store,
+    WiFiPass,
+)
+from app.services import events as event_service
 from app.seed import seed
 from app.time import business_date, db_now
 
@@ -193,6 +204,16 @@ def test_pdf_admin_flow_and_ai_decision(client):
     )
     assert expire.status_code == 200
     assert expire.json()["data"]["status"] == "EXPIRED"
+    with SessionLocal() as db:
+        event_types = set(
+            db.scalars(
+                select(BackendEvent.event_type).where(
+                    BackendEvent.aggregate_id == data["wifiPass"]["passId"]
+                )
+            ).all()
+        )
+    assert "wifi.pass.extended" in event_types
+    assert "wifi.pass.expired" in event_types
 
     recommendation = client.get("/admin/ai/recommendations", headers=auth).json()["data"][0]
     store_id, _ = ids()
@@ -202,6 +223,73 @@ def test_pdf_admin_flow_and_ai_decision(client):
         json={"storeId": store_id, "version": recommendation["version"]},
     )
     assert accepted.status_code == 201
+
+
+def test_admin_can_block_pass_and_publish_event(monkeypatch, client):
+    monkeypatch.setattr(
+        event_service,
+        "settings",
+        replace(event_service.settings, sse_max_seconds=0),
+    )
+    order = create_order(client, "ORDER-BLOCK", phone="010-9999-0001")
+    data = order.json()["data"]
+    pass_id = data["wifiPass"]["passId"]
+    initial_version = data["wifiPass"]["version"]
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+
+    blocked = client.post(
+        f"/admin/passes/{pass_id}/block",
+        headers=auth,
+        json={"reason": "시연 중 관리자 차단"},
+    )
+
+    assert blocked.status_code == 200
+    assert blocked.json()["data"]["status"] == "BLOCKED"
+    assert blocked.json()["data"]["version"] == initial_version + 1
+
+    repeated = client.post(f"/admin/passes/{pass_id}/block", headers=auth)
+    assert repeated.status_code == 200
+    assert repeated.json()["data"]["version"] == initial_version + 1
+
+    stream = client.get("/admin/events", headers=auth)
+    assert stream.status_code == 200
+    assert "event: wifi.pass.blocked" in stream.text
+    assert f'"passId": "{pass_id}"' in stream.text
+
+    store_id, _ = ids()
+    with SessionLocal() as db:
+        event = db.scalar(
+            select(BackendEvent).where(
+                BackendEvent.store_id == store_id,
+                BackendEvent.event_type == "wifi.pass.blocked",
+                BackendEvent.aggregate_id == pass_id,
+            )
+        )
+        assert event is not None
+        assert event.payload["reason"] == "시연 중 관리자 차단"
+
+
+def test_admin_sse_accepts_access_cookie(monkeypatch, client):
+    monkeypatch.setattr(
+        event_service,
+        "settings",
+        replace(event_service.settings, sse_max_seconds=0),
+    )
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    assert login.status_code == 200
+    assert "smartpass_access" in client.cookies
+
+    response = client.get(
+        "/admin/events",
+        headers={"Origin": "http://localhost:5173"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert response.headers["access-control-allow-credentials"] == "true"
+    assert ": connected" in response.text
 
 
 def test_demo_key_and_seed_are_idempotent(client):

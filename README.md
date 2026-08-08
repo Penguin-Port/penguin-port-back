@@ -78,6 +78,7 @@ DATABASE_URL=postgresql+psycopg://postgres:password@db.example.supabase.co:5432/
 JWT_SECRET=32자 이상의 운영용 비밀키
 DEMO_KEY=demo-key
 DEMO_OTP_CODE=123456
+CORS_ALLOWED_ORIGINS=https://your-frontend.example.com
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5-mini
 OPENAI_TIMEOUT_SECONDS=20
@@ -102,6 +103,13 @@ python3 -m app.seed
 
 기본 데모 계정은 `demo-owner / demo-password`입니다. 시드 명령은 다시 실행해도 같은 매장과
 PENDING AI 카드가 중복 생성되지 않습니다.
+
+주문·매출·활성 이용권·재고 위험까지 포함한 시연 데이터는 다음 명령으로 준비합니다. 이 명령도
+`DEMO-ORDER-*` 키와 상품/재고 식별자를 기준으로 멱등 동작합니다.
+
+```bash
+python3 -m app.demo_seed
+```
 
 ### 4. 실행
 
@@ -155,6 +163,7 @@ RESET_DB=0 ./scripts/run_local.sh
 | GET | `/admin/passes/active` | 활성 이용권 폴링 목록 |
 | POST | `/admin/passes/{id}/extend` | 수동 연장 |
 | POST | `/admin/passes/{id}/expire` | 즉시 종료 + Demo revoke |
+| POST | `/admin/passes/{id}/block` | 관리자 이용권 차단 + Demo revoke |
 | GET | `/admin/events` | 관리자 실시간 SSE 이벤트 스트림 |
 | GET | `/admin/team` | 관리자 팀 목록 |
 | POST | `/admin/team` | 관리자 계정 생성 |
@@ -219,6 +228,8 @@ Customer Portal 연동 응답에는 다음 표시용 필드가 포함됩니다.
 - POS: `X-Demo-Key: $DEMO_KEY`
 - 고객: OTP 확인 응답의 `portalSession`을 `X-Portal-Session`에 전달
 - 관리자: 로그인 응답의 `accessToken`을 `Authorization: Bearer ...`에 전달하고, `refreshToken`은 HttpOnly 쿠키에도 설정됩니다.
+
+관리자 SSE 연결과 차단 API의 요청·응답 형식은 [`docs/MVP_DEMO_SPEC.md`](docs/MVP_DEMO_SPEC.md)를 참고합니다.
 
 ### 대표 호출 순서
 
