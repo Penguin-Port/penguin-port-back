@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -16,6 +17,7 @@ from app.models import (
     Store,
     WiFiPass,
 )
+from app.services import events as event_service
 from app.seed import seed
 from app.time import business_date, db_now
 
@@ -246,6 +248,26 @@ def test_admin_can_block_pass_and_publish_event(client):
         )
         assert event is not None
         assert event.payload["reason"] == "시연 중 관리자 차단"
+
+
+def test_admin_sse_accepts_access_cookie(monkeypatch, client):
+    monkeypatch.setattr(
+        event_service,
+        "settings",
+        replace(event_service.settings, sse_max_seconds=0),
+    )
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    assert login.status_code == 200
+    assert "smartpass_access" in client.cookies
+
+    response = client.get(
+        "/admin/events",
+        headers={"Origin": "http://localhost:5173"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert ": connected" in response.text
 
 
 def test_demo_key_and_seed_are_idempotent(client):

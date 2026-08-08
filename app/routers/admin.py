@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth import (
+    ACCESS_COOKIE,
     decode_token,
     hash_password,
     hash_token,
@@ -108,6 +109,18 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
     )
 
 
+def _set_access_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        ACCESS_COOKIE,
+        token,
+        max_age=settings.access_token_minutes * 60,
+        httponly=True,
+        secure=settings.secure_cookies,
+        samesite="none" if settings.secure_cookies else "lax",
+        path="/admin",
+    )
+
+
 def _new_refresh_session(db: Session, user: AdminUser) -> tuple[str, RefreshTokenSession]:
     session = RefreshTokenSession(
         admin_id=user.id,
@@ -158,6 +171,7 @@ def login(
     data["refreshToken"] = refresh_token
     data["refreshExpiresIn"] = settings.refresh_token_days * 24 * 60 * 60
     _set_refresh_cookie(response, refresh_token)
+    _set_access_cookie(response, data["accessToken"])
     db.commit()
     return success(data)
 
@@ -193,6 +207,7 @@ def refresh(
     data["refreshToken"] = new_refresh
     data["refreshExpiresIn"] = settings.refresh_token_days * 24 * 60 * 60
     _set_refresh_cookie(response, new_refresh)
+    _set_access_cookie(response, data["accessToken"])
     db.commit()
     return success(data)
 
@@ -215,6 +230,7 @@ def logout(
             session.revoked_at = db_now()
             db.commit()
     response.delete_cookie(REFRESH_COOKIE, path="/admin")
+    response.delete_cookie(ACCESS_COOKIE, path="/admin")
     return success({"loggedOut": True})
 
 
