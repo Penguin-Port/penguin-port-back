@@ -36,6 +36,7 @@ from app.schemas import (
     AdminTeamMemberCreateRequest,
     AdminTeamMemberPatchRequest,
     AdminPassExpireRequest,
+    AdminPassBlockRequest,
     AdminPassExtendRequest,
     AdminRefreshRequest,
     RecommendationDecisionRequest,
@@ -872,6 +873,61 @@ def expire_pass(
             metadata={"version": wifi_pass.version},
         )
         db.commit()
+    return success(pass_data(wifi_pass))
+
+
+@router.post("/admin/passes/{pass_id}/block")
+def block_pass(
+    pass_id: str,
+    payload: AdminPassBlockRequest | None = None,
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    _require_write_role(db, claims)
+    wifi_pass = db.get(WiFiPass, pass_id)
+    if wifi_pass is None:
+        raise HTTPException(status_code=404, detail="이용권을 찾을 수 없습니다.")
+
+    requested_store = payload.storeId if payload else None
+    if wifi_pass.store_id != claims["storeId"] or (
+        requested_store and requested_store != wifi_pass.store_id
+    ):
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+
+    if wifi_pass.status == "BLOCKED":
+        return success(pass_data(wifi_pass))
+    if wifi_pass.status in {"EXPIRED", "CANCELLED", "FAILED"}:
+        raise HTTPException(status_code=409, detail="현재 상태의 이용권은 차단할 수 없습니다.")
+
+    reason = (payload.reason if payload else "").strip()
+    revoke(wifi_pass.network_reference or "")
+    wifi_pass.status = "BLOCKED"
+    wifi_pass.network_reference = None
+    wifi_pass.version += 1
+    record_audit(
+        db,
+        store_id=wifi_pass.store_id,
+        action="WIFI_PASS_BLOCKED",
+        resource_type="WiFiPass",
+        resource_id=wifi_pass.id,
+        actor_type="ADMIN",
+        actor_id=claims.get("adminId"),
+        metadata={"reason": reason, "version": wifi_pass.version},
+    )
+    publish_event(
+        db,
+        store_id=wifi_pass.store_id,
+        event_type="wifi.pass.blocked",
+        aggregate_type="WiFiPass",
+        aggregate_id=wifi_pass.id,
+        payload={
+            "passId": wifi_pass.id,
+            "status": wifi_pass.status,
+            "version": wifi_pass.version,
+            "reason": reason,
+        },
+    )
+    db.commit()
     return success(pass_data(wifi_pass))
 
 

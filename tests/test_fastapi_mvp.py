@@ -6,7 +6,16 @@ from sqlalchemy import select
 
 from app.db import SessionLocal, init_db
 from app.main import app
-from app.models import AIRecommendation, DailySpendBalance, Order, Product, RewardGrant, Store, WiFiPass
+from app.models import (
+    AIRecommendation,
+    BackendEvent,
+    DailySpendBalance,
+    Order,
+    Product,
+    RewardGrant,
+    Store,
+    WiFiPass,
+)
 from app.seed import seed
 from app.time import business_date, db_now
 
@@ -202,6 +211,41 @@ def test_pdf_admin_flow_and_ai_decision(client):
         json={"storeId": store_id, "version": recommendation["version"]},
     )
     assert accepted.status_code == 201
+
+
+def test_admin_can_block_pass_and_publish_event(client):
+    order = create_order(client, "ORDER-BLOCK", phone="010-9999-0001")
+    data = order.json()["data"]
+    pass_id = data["wifiPass"]["passId"]
+    initial_version = data["wifiPass"]["version"]
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+
+    blocked = client.post(
+        f"/admin/passes/{pass_id}/block",
+        headers=auth,
+        json={"reason": "시연 중 관리자 차단"},
+    )
+
+    assert blocked.status_code == 200
+    assert blocked.json()["data"]["status"] == "BLOCKED"
+    assert blocked.json()["data"]["version"] == initial_version + 1
+
+    repeated = client.post(f"/admin/passes/{pass_id}/block", headers=auth)
+    assert repeated.status_code == 200
+    assert repeated.json()["data"]["version"] == initial_version + 1
+
+    store_id, _ = ids()
+    with SessionLocal() as db:
+        event = db.scalar(
+            select(BackendEvent).where(
+                BackendEvent.store_id == store_id,
+                BackendEvent.event_type == "wifi.pass.blocked",
+                BackendEvent.aggregate_id == pass_id,
+            )
+        )
+        assert event is not None
+        assert event.payload["reason"] == "시연 중 관리자 차단"
 
 
 def test_demo_key_and_seed_are_idempotent(client):
