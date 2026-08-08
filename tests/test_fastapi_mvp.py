@@ -267,6 +267,8 @@ def test_admin_sse_accepts_access_cookie(monkeypatch, client):
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert response.headers["access-control-allow-credentials"] == "true"
     assert ": connected" in response.text
 
 

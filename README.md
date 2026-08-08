@@ -78,6 +78,7 @@ DATABASE_URL=postgresql+psycopg://postgres:password@db.example.supabase.co:5432/
 JWT_SECRET=32자 이상의 운영용 비밀키
 DEMO_KEY=demo-key
 DEMO_OTP_CODE=123456
+CORS_ALLOWED_ORIGINS=https://your-frontend.example.com
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-5-mini
 OPENAI_TIMEOUT_SECONDS=20

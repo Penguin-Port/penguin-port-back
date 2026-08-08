@@ -23,6 +23,14 @@ class Settings:
     promotion_max_discount_rate: int = int(os.getenv("PROMOTION_MAX_DISCOUNT_RATE", "50"))
     promotion_max_duration_hours: int = int(os.getenv("PROMOTION_MAX_DURATION_HOURS", "24"))
     secure_cookies: bool = os.getenv("SECURE_COOKIES", "0") == "1"
+    cors_allowed_origins: tuple[str, ...] = tuple(
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ALLOWED_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174",
+        ).split(",")
+        if origin.strip()
+    )
     phone_retention_days: int = int(os.getenv("PHONE_RETENTION_DAYS", "90"))
     audit_retention_days: int = int(os.getenv("AUDIT_RETENTION_DAYS", "365"))
     otp_send_window_seconds: int = int(os.getenv("OTP_SEND_WINDOW_SECONDS", "60"))
