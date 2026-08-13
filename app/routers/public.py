@@ -17,6 +17,7 @@ from app.models import (
     OrderClaim,
     OrderItem,
     OtpChallenge,
+    Promotion,
     RewardBenefit,
     RewardGrant,
     RewardRedemption,
@@ -351,7 +352,6 @@ def upsell_hint(
         .order_by(RewardTier.threshold_amount)
     )
     preview = []
-    suggested_items = []
     if tier is not None:
         benefits = db.scalars(
             select(RewardBenefit)
@@ -360,19 +360,23 @@ def upsell_hint(
             .order_by(RewardBenefit.id)
         ).all()
         preview = [benefit.benefit_type for benefit in benefits]
-        suggested_items = [
-            {
-                "productId": product.id,
-                "name": product.name,
-                "price": product.price,
-            }
-            for product in db.scalars(
-                select(Product)
-                .where(Product.store_id == claims["storeId"], Product.is_active.is_(True))
-                .order_by(Product.price.asc(), Product.name.asc())
-                .limit(3)
-            ).all()
-        ]
+    products = db.scalars(
+        select(Product)
+        .where(Product.store_id == claims["storeId"], Product.is_active.is_(True))
+        .order_by(Product.price.asc(), Product.name.asc())
+    ).all()
+    promotions = _current_promotions(db, claims["storeId"])
+    products = sorted(
+        products,
+        key=lambda product: (
+            0 if _promotion_for_product(product, promotions) else 1,
+            product.price,
+            product.name,
+        ),
+    )[:3]
+    suggested_items = [
+        _suggested_item_data(product, promotions) for product in products
+    ]
     return success(
         {
             "dailyTotal": total,
@@ -381,6 +385,62 @@ def upsell_hint(
             "nextTierBenefitsPreview": preview,
             "suggestedItems": suggested_items,
         }
+    )
+
+
+def _current_promotions(db: Session, store_id: str) -> list[Promotion]:
+    now = db_now()
+    return db.scalars(
+        select(Promotion)
+        .where(
+            Promotion.store_id == store_id,
+            Promotion.status.in_(["SCHEDULED", "ACTIVE"]),
+            Promotion.starts_at <= now,
+            Promotion.ends_at > now,
+        )
+        .order_by(Promotion.starts_at.desc())
+    ).all()
+
+
+def _suggested_item_data(product: Product, promotions: list[Promotion]) -> dict:
+    promotion = _promotion_for_product(product, promotions)
+    data = {
+        "productId": product.id,
+        "name": product.name,
+        "price": product.price,
+    }
+    if promotion is None:
+        return data
+
+    try:
+        discount_rate = int((promotion.payload or {}).get("discountRate", 0))
+    except (TypeError, ValueError):
+        return data
+    if discount_rate <= 0:
+        return data
+
+    data.update(
+        {
+            "originalPrice": product.price,
+            "discountRate": discount_rate,
+            "discountedPrice": max(0, round(product.price * (100 - discount_rate) / 100)),
+            "promotionTitle": promotion.title,
+            "promotionEndsAt": promotion.ends_at.isoformat(),
+        }
+    )
+    return data
+
+
+def _promotion_for_product(
+    product: Product, promotions: list[Promotion]
+) -> Promotion | None:
+    return next(
+        (
+            item
+            for item in promotions
+            if product.id in (item.payload or {}).get("menuIds", [])
+        ),
+        None,
     )
 
 
