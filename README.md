@@ -111,6 +111,18 @@ PENDING AI 카드가 중복 생성되지 않습니다.
 python3 -m app.demo_seed
 ```
 
+`demo_seed`는 관리자 화면용 매출·재고 데이터와 함께 고객 포털을 바로 시험할 수 있는
+전화번호 기반 주문 1건, Wi-Fi 이용권, 리워드, 만료 전의 `orderClaim`을 준비합니다. 명령
+출력의 `orderClaim.token`, `demoPhone`, `demoOtpCode`를 사용해 다음 주소를 열면 됩니다.
+
+```text
+https://penguin-port-customer.pages.dev/connect?orderClaim=ORDER_CLAIM_TOKEN
+```
+
+로컬 고객 프론트엔드는 `http://localhost:5173/connect?orderClaim=ORDER_CLAIM_TOKEN`으로
+접속합니다. `demo_seed`를 다시 실행하면 이전 Claim이 교체되므로 가장 최근 출력의 토큰을
+사용해야 합니다. 기본 데모 전화번호는 `010-1234-5678`, OTP는 `123456`입니다.
+
 ### 4. 실행
 
 ```bash
