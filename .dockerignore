@@ -2,6 +2,6 @@ __pycache__
 *.pyc
 db.sqlite3
 *.sqlite3
-.env
+.env*
 .git
 .pytest_cache

@@ -1,4 +1,7 @@
+# Never commit local or deployment environment files. Keep only the template.
 .env
+.env.*
+!.env.example
 .venv/
 venv/
 db.sqlite3

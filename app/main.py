@@ -46,13 +46,23 @@ app = FastAPI(
 )
 
 
-# 로컬 프론트엔드 개발 서버의 API 요청을 허용합니다.
+# 브라우저 클라이언트가 사용하는 인증·멱등성 헤더를 명시적으로 허용합니다.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_allowed_origins),
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=[
+        "Accept",
+        "Authorization",
+        "Content-Type",
+        "Idempotency-Key",
+        "Last-Event-ID",
+        "Origin",
+        "X-Demo-Key",
+        "X-Portal-Session",
+        "X-Request-Id",
+    ],
 )
 
 

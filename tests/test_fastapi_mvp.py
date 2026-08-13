@@ -292,6 +292,33 @@ def test_admin_sse_accepts_access_cookie(monkeypatch, client):
     assert ": connected" in response.text
 
 
+def test_cors_preflight_allows_frontend_auth_headers(client):
+    response = client.options(
+        "/pos/orders",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": (
+                "authorization, content-type, x-portal-session, "
+                "x-demo-key, idempotency-key"
+            ),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert response.headers["access-control-allow-credentials"] == "true"
+    allowed_headers = response.headers["access-control-allow-headers"].lower()
+    for header in (
+        "authorization",
+        "content-type",
+        "x-portal-session",
+        "x-demo-key",
+        "idempotency-key",
+    ):
+        assert header in allowed_headers
+
+
 def test_demo_key_and_seed_are_idempotent(client):
     denied = create_order(client, "ORDER-DENIED")
     assert denied.status_code == 201
