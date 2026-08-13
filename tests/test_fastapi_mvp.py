@@ -18,6 +18,7 @@ from app.models import (
     WiFiPass,
 )
 from app.services import events as event_service
+from app.demo_seed import seed_demo_data
 from app.seed import seed
 from app.time import business_date, db_now
 
@@ -327,6 +328,60 @@ def test_demo_key_and_seed_are_idempotent(client):
     first = seed(store_name="테스트 카페", username="owner", password="password")
     second = seed(store_name="테스트 카페", username="owner", password="password")
     assert first["recommendationId"] == second["recommendationId"]
+
+
+def test_demo_seed_provides_a_customer_claim_and_ready_portal_flow(client):
+    result = seed_demo_data(
+        store_name="시연 카페",
+        username="demo-owner",
+        password="demo-password",
+    )
+
+    assert result["demoPhone"] == "010-1234-5678"
+    assert result["demoOtpCode"] == "123456"
+    assert result["orderClaim"]["token"]
+    assert len(result["demoRewardGrantIds"]) == 2
+
+    exchange = client.post(
+        "/public/order-claims/exchange",
+        json={"orderClaim": result["orderClaim"]["token"]},
+    )
+    assert exchange.status_code == 200
+    exchange_data = exchange.json()["data"]
+
+    send = client.post(
+        "/public/otp/send",
+        json={
+            "verificationTicket": exchange_data["verificationTicket"],
+            "phone": result["demoPhone"],
+        },
+    )
+    assert send.status_code == 201
+    assert send.json()["data"]["demoCode"] == result["demoOtpCode"]
+
+    confirm = client.post(
+        "/public/otp/confirm",
+        json={
+            "challengeId": send.json()["data"]["challengeId"],
+            "code": result["demoOtpCode"],
+        },
+    )
+    assert confirm.status_code == 200
+    portal_session = confirm.json()["data"]["portalSession"]
+
+    activate = client.post(
+        f"/public/passes/{exchange_data['passId']}/activate",
+        headers={"X-Portal-Session": portal_session},
+    )
+    assert activate.status_code == 200
+    assert activate.json()["data"]["status"] == "ACTIVE"
+
+    options = client.get(
+        f"/public/rewards/grants/{result['demoRewardGrantIds'][0]}/options",
+        headers={"X-Portal-Session": portal_session},
+    )
+    assert options.status_code == 200
+    assert options.json()["data"]["status"] == "AWAITING_CHOICE"
 
 
 def test_expire_loop_scans_active_passes(client):

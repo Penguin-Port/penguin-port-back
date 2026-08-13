@@ -133,5 +133,16 @@ python -m app.demo_seed
   → TIME_SALE 추천 생성 → 필요 시 수정 → 관리자 승인
 ```
 
+`python -m app.demo_seed`의 출력에는 고객 포털을 시작할 수 있는 `orderClaim.token`,
+`demoPhone`, `demoOtpCode`가 포함됩니다. 가장 최근 출력의 Claim으로 다음 주소를 열어
+고객 흐름을 시연합니다.
+
+```text
+https://penguin-port-customer.pages.dev/connect?orderClaim=ORDER_CLAIM_TOKEN
+```
+
+시드 재실행 시 이전 Claim은 교체됩니다. 기본 데모 전화번호는 `010-1234-5678`, OTP는
+`123456`입니다.
+
 시연 데이터·OpenAI 배포 변수 등록은 [`docs/DEMO_DEPLOYMENT.md`](DEMO_DEPLOYMENT.md)에
 정리되어 있습니다.
