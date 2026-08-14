@@ -13,7 +13,10 @@ from app.models import (
     DailySpendBalance,
     Order,
     Product,
+    RewardBenefit,
     RewardGrant,
+    RewardRedemption,
+    RewardTier,
     Store,
     WiFiPass,
 )
@@ -554,6 +557,50 @@ def test_immediate_reward_is_consumed_by_the_next_order(client):
     second = create_order(client, "ORDER-IMMEDIATE-SECOND", phone="010-5555-0002")
     assert second.status_code == 201
     assert second.json()["data"]["appliedRewards"][0]["status"] == "CONSUMED"
+
+
+def test_wifi_day_pass_reward_cannot_extend_expired_pass(client):
+    order = create_order(
+        client,
+        "ORDER-EXPIRED-DAY-PASS",
+        total=20000,
+        item_unit_price=20000,
+        phone="010-5555-0006",
+    )
+    assert order.status_code == 201
+    data = order.json()["data"]
+    session = portal_session(client, data, phone="010-5555-0006")
+    with SessionLocal() as db:
+        grant = db.scalar(
+            select(RewardGrant)
+            .join(RewardTier, RewardTier.id == RewardGrant.tier_id)
+            .where(
+                RewardGrant.id.in_(data["newRewardGrantIds"]),
+                RewardTier.threshold_amount == 20000,
+            )
+        )
+        benefit = db.scalar(
+            select(RewardBenefit).where(
+                RewardBenefit.tier_id == grant.tier_id,
+                RewardBenefit.benefit_type == "WIFI_DAY_PASS",
+            )
+        )
+        wifi_pass = db.get(WiFiPass, data["wifiPass"]["passId"])
+        wifi_pass.status = "EXPIRED"
+        db.commit()
+
+    chosen = client.post(
+        f"/public/rewards/{grant.id}/choose",
+        headers={"X-Portal-Session": session},
+        json={"benefitId": benefit.id, "fulfillMode": "IMMEDIATE"},
+    )
+
+    assert chosen.status_code == 409
+    with SessionLocal() as db:
+        assert db.get(RewardGrant, grant.id).status == "AWAITING_CHOICE"
+        assert db.scalar(
+            select(RewardRedemption).where(RewardRedemption.grant_id == grant.id)
+        ) is None
 
 
 def test_admin_refresh_rotates_and_logout_revokes_refresh_token(client):

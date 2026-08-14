@@ -38,7 +38,7 @@ from app.services.notifications import generate_otp, send_otp as deliver_otp
 from integrations.providers import get_notification_provider
 from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.rewards import choose_benefit
-from app.services.wifi import expire_due_passes, pass_data
+from app.services.wifi import TERMINAL_PASS_STATUSES, expire_due_passes, pass_data
 from app.security import masked_phone, phone_lookup_hash
 from app.time import business_date, business_day_end, db_now
 
@@ -451,6 +451,21 @@ def choose_reward(
             or current_order.customer_key != grant.customer_key
         ):
             raise HTTPException(status_code=404, detail="현재 주문을 찾을 수 없습니다.")
+    day_pass_context = None
+    if payload.fulfillMode == "IMMEDIATE" and benefit.benefit_type == "WIFI_DAY_PASS":
+        store = db.get(Store, grant.store_id)
+        wifi_pass = db.scalar(
+            select(WiFiPass).where(
+                WiFiPass.store_id == grant.store_id,
+                WiFiPass.customer_key == grant.customer_key,
+                WiFiPass.business_date == grant.business_date,
+            )
+        )
+        if store is None or wifi_pass is None:
+            raise HTTPException(status_code=422, detail="종일권을 적용할 이용권이 없습니다.")
+        if wifi_pass.status in TERMINAL_PASS_STATUSES:
+            raise HTTPException(status_code=409, detail="현재 이용권에는 종일권을 적용할 수 없습니다.")
+        day_pass_context = (store, wifi_pass)
     try:
         coupon, benefit_data = choose_benefit(
             db, grant=grant, benefit=benefit, fulfill_mode=payload.fulfillMode
@@ -459,19 +474,8 @@ def choose_reward(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     immediate = None
     if payload.fulfillMode == "IMMEDIATE":
-        if benefit.benefit_type == "WIFI_DAY_PASS":
-            store = db.get(Store, grant.store_id)
-            wifi_pass = db.scalar(
-                select(WiFiPass).where(
-                    WiFiPass.store_id == grant.store_id,
-                    WiFiPass.customer_key == grant.customer_key,
-                    WiFiPass.business_date == grant.business_date,
-                )
-            )
-            if store is None or wifi_pass is None:
-                raise HTTPException(status_code=422, detail="종일권을 적용할 이용권이 없습니다.")
-            if wifi_pass.status in {"BLOCKED", "CANCELLED", "FAILED"}:
-                raise HTTPException(status_code=409, detail="현재 이용권에는 종일권을 적용할 수 없습니다.")
+        if day_pass_context is not None:
+            store, wifi_pass = day_pass_context
             wifi_pass.expires_at = max(
                 wifi_pass.expires_at,
                 business_day_end(
