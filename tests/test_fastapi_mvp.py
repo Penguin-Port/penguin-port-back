@@ -187,7 +187,7 @@ def test_exchange_reports_additional_order_minutes(client):
 
 
 def test_pdf_admin_flow_and_ai_decision(client):
-    order = create_order(client, "ORDER-ADMIN")
+    order = create_order(client, "ORDER-ADMIN", phone="010-9999-0100")
     data = order.json()["data"]
     login = client.post("/admin/login", json={"username": "owner", "password": "password"})
     assert login.status_code == 200
@@ -813,10 +813,12 @@ def test_refund_reclaims_proportional_wifi_time(client):
     pass_id = order_data["wifiPass"]["passId"]
     store_id, _ = ids()
     with SessionLocal() as db:
+        order_row = db.get(Order, order_data["orderId"])
         wifi_pass = db.get(WiFiPass, pass_id)
         wifi_pass.status = "ACTIVE"
-        wifi_pass.expires_at = db_now() + timedelta(minutes=150)
+        wifi_pass.expires_at = db_now() + timedelta(minutes=order_row.wifi_minutes)
         before_expiry = wifi_pass.expires_at
+        expected_reclaim = (order_row.wifi_minutes + 1) // 2
         db.commit()
 
     partial = client.post(
@@ -826,10 +828,10 @@ def test_refund_reclaims_proportional_wifi_time(client):
     )
 
     assert partial.status_code == 200
-    assert partial.json()["data"]["wifiMinutesRevoked"] == 75
+    assert partial.json()["data"]["wifiMinutesRevoked"] == expected_reclaim
     with SessionLocal() as db:
         wifi_pass = db.get(WiFiPass, pass_id)
-        assert wifi_pass.expires_at == before_expiry - timedelta(minutes=75)
+        assert wifi_pass.expires_at == before_expiry - timedelta(minutes=expected_reclaim)
         assert wifi_pass.status == "ACTIVE"
 
     full = client.post(
@@ -839,7 +841,7 @@ def test_refund_reclaims_proportional_wifi_time(client):
     )
 
     assert full.status_code == 200
-    assert full.json()["data"]["wifiMinutesRevoked"] == 75
+    assert full.json()["data"]["wifiMinutesRevoked"] == expected_reclaim
     with SessionLocal() as db:
         wifi_pass = db.get(WiFiPass, pass_id)
         assert wifi_pass.status == "EXPIRED"
