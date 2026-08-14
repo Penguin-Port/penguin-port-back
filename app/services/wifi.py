@@ -11,6 +11,7 @@ from app.time import aware, db_now, normalize
 
 
 TERMINAL_PASS_STATUSES = {"EXPIRED", "BLOCKED", "CANCELLED", "FAILED"}
+PASS_REACTIVATION_BLOCKED_STATUSES = {"BLOCKED", "CANCELLED", "FAILED"}
 
 
 def pass_data(wifi_pass: WiFiPass, *, now: datetime | None = None) -> dict:

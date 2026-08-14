@@ -204,7 +204,7 @@ def test_pdf_admin_flow_and_ai_decision(client):
         json={},
     )
     assert expire.status_code == 200
-    assert expire.json()["data"]["status"] == "EXPIRED"
+    assert expire.json()["data"]["status"] == "CANCELLED"
     with SessionLocal() as db:
         event_types = set(
             db.scalars(
@@ -224,6 +224,38 @@ def test_pdf_admin_flow_and_ai_decision(client):
         json={"storeId": store_id, "version": recommendation["version"]},
     )
     assert accepted.status_code == 201
+
+
+def test_admin_expire_does_not_reactivate_on_additional_order(client):
+    first = create_order(client, "ORDER-MANUAL-EXPIRE", phone="010-9999-0101")
+    assert first.status_code == 201
+    pass_id = first.json()["data"]["wifiPass"]["passId"]
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+
+    expired = client.post(f"/admin/passes/{pass_id}/expire", headers=auth, json={})
+    assert expired.status_code == 200
+    assert expired.json()["data"]["status"] == "CANCELLED"
+
+    second = create_order(client, "ORDER-MANUAL-EXPIRE-SECOND", phone="010-9999-0101")
+    assert second.status_code == 409
+    with SessionLocal() as db:
+        assert db.get(WiFiPass, pass_id).status == "CANCELLED"
+        assert db.scalar(select(Order).where(Order.external_order_id == "ORDER-MANUAL-EXPIRE-SECOND")) is None
+
+
+def test_natural_expiry_can_be_extended_by_additional_order(client):
+    first = create_order(client, "ORDER-NATURAL-EXPIRE", phone="010-9999-0102")
+    pass_id = first.json()["data"]["wifiPass"]["passId"]
+    with SessionLocal() as db:
+        wifi_pass = db.get(WiFiPass, pass_id)
+        wifi_pass.status = "EXPIRED"
+        wifi_pass.expires_at = db_now() - timedelta(minutes=1)
+        db.commit()
+
+    second = create_order(client, "ORDER-NATURAL-EXPIRE-SECOND", phone="010-9999-0102")
+    assert second.status_code == 201
+    assert second.json()["data"]["wifiPass"]["status"] == "ACTIVE"
 
 
 def test_admin_can_block_pass_and_publish_event(monkeypatch, client):

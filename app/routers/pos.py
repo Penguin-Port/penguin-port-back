@@ -31,7 +31,7 @@ from app.services.rewards import evaluate_grants
 from app.security import customer_key, phone_last4, phone_lookup_hash
 from app.services.audit import record_audit
 from app.services.events import publish_event
-from app.services.wifi import pass_data
+from app.services.wifi import PASS_REACTIVATION_BLOCKED_STATUSES, pass_data
 from app.time import business_date, db_now
 
 
@@ -142,9 +142,13 @@ def create_order(
             WiFiPass.store_id == store.id,
             WiFiPass.customer_key == customer_key,
             WiFiPass.business_date == day,
-            WiFiPass.status.not_in(["BLOCKED", "CANCELLED"]),
         )
     )
+    if wifi_pass is not None and wifi_pass.status in PASS_REACTIVATION_BLOCKED_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail="현재 이용권 상태에서는 추가 주문으로 Wi-Fi 시간을 연장할 수 없습니다.",
+        )
     if wifi_pass is None:
         minutes, snapshot = first_order_minutes(payload.totalAmount, store.policy_config)
         wifi_pass = WiFiPass(
