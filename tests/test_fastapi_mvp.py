@@ -333,6 +333,22 @@ def test_admin_can_block_pass_and_publish_event(monkeypatch, client):
         assert event.payload["reason"] == "시연 중 관리자 차단"
 
 
+def test_admin_block_route_is_available_for_frontend_api_alias(client):
+    order = create_order(client, "ORDER-BLOCK-ALIAS", phone="010-9999-0002")
+    pass_id = order.json()["data"]["wifiPass"]["passId"]
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+
+    blocked = client.post(
+        f"/api/v1/admin/passes/{pass_id}/block",
+        headers=auth,
+        json={"reason": "프론트 호환 경로 확인"},
+    )
+
+    assert blocked.status_code == 200
+    assert blocked.json()["data"]["status"] == "BLOCKED"
+
+
 def test_admin_sse_accepts_access_cookie(monkeypatch, client):
     monkeypatch.setattr(
         event_service,
