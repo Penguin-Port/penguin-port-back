@@ -258,6 +258,33 @@ def test_natural_expiry_can_be_extended_by_additional_order(client):
     assert second.json()["data"]["wifiPass"]["status"] == "ACTIVE"
 
 
+def test_admin_extend_cannot_revive_manually_cancelled_pass(client):
+    order = create_order(client, "ORDER-EXTEND-CANCELLED", phone="010-9999-0103")
+    pass_id = order.json()["data"]["wifiPass"]["passId"]
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+    cancelled = client.post(f"/admin/passes/{pass_id}/expire", headers=auth, json={})
+    assert cancelled.status_code == 200
+
+    with SessionLocal() as db:
+        before = db.get(WiFiPass, pass_id)
+        before_expiry = before.expires_at
+        before_version = before.version
+
+    extended = client.post(
+        f"/admin/passes/{pass_id}/extend",
+        headers=auth,
+        json={"minutes": 30},
+    )
+
+    assert extended.status_code == 409
+    with SessionLocal() as db:
+        after = db.get(WiFiPass, pass_id)
+        assert after.status == "CANCELLED"
+        assert after.expires_at == before_expiry
+        assert after.version == before_version
+
+
 def test_admin_can_block_pass_and_publish_event(monkeypatch, client):
     monkeypatch.setattr(
         event_service,

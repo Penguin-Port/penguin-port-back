@@ -841,6 +841,8 @@ def extend_pass(
         payload.storeId and payload.storeId != wifi_pass.store_id
     ):
         raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    if wifi_pass.status in PASS_REACTIVATION_BLOCKED_STATUSES:
+        raise HTTPException(status_code=409, detail="현재 상태의 이용권은 연장할 수 없습니다.")
     wifi_pass.expires_at = max(wifi_pass.expires_at, db_now()) + timedelta(
         minutes=payload.minutes
     )
