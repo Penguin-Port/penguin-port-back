@@ -31,7 +31,12 @@ from app.services.rewards import evaluate_grants
 from app.security import customer_key, phone_last4, phone_lookup_hash
 from app.services.audit import record_audit
 from app.services.events import publish_event
-from app.services.wifi import pass_data
+from app.services.wifi import (
+    PASS_REACTIVATION_BLOCKED_STATUSES,
+    pass_data,
+    prorated_refunded_wifi_minutes,
+    reclaim_wifi_minutes,
+)
 from app.time import business_date, db_now
 
 
@@ -142,9 +147,13 @@ def create_order(
             WiFiPass.store_id == store.id,
             WiFiPass.customer_key == customer_key,
             WiFiPass.business_date == day,
-            WiFiPass.status.not_in(["BLOCKED", "CANCELLED"]),
         )
     )
+    if wifi_pass is not None and wifi_pass.status in PASS_REACTIVATION_BLOCKED_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail="현재 이용권 상태에서는 추가 주문으로 Wi-Fi 시간을 연장할 수 없습니다.",
+        )
     if wifi_pass is None:
         minutes, snapshot = first_order_minutes(payload.totalAmount, store.policy_config)
         wifi_pass = WiFiPass(
@@ -300,6 +309,9 @@ def refund_order(
     if refund_amount <= 0 or refund_amount > refundable:
         raise HTTPException(status_code=422, detail="환불 가능 금액을 초과했습니다.")
 
+    previous_refunded_amount = order.refunded_amount
+    now = db_now()
+
     balance = db.scalar(
         select(DailySpendBalance).where(
             DailySpendBalance.store_id == order.store_id,
@@ -314,6 +326,31 @@ def refund_order(
         balance.total_amount = max(0, balance.total_amount - refund_amount)
         balance.version += 1
         new_daily_total = balance.total_amount
+
+    wifi_pass = db.scalar(
+        select(WiFiPass)
+        .where(
+            WiFiPass.store_id == order.store_id,
+            WiFiPass.customer_key == order.customer_key,
+            WiFiPass.business_date == order.business_date,
+        )
+        .with_for_update()
+    )
+    previous_reclaim = prorated_refunded_wifi_minutes(
+        wifi_minutes=order.wifi_minutes,
+        total_amount=order.total_amount,
+        refunded_amount=previous_refunded_amount,
+    )
+    target_reclaim = prorated_refunded_wifi_minutes(
+        wifi_minutes=order.wifi_minutes,
+        total_amount=order.total_amount,
+        refunded_amount=order.refunded_amount,
+    )
+    wifi_minutes_revoked = reclaim_wifi_minutes(
+        wifi_pass,
+        minutes=target_reclaim - previous_reclaim,
+        now=now,
+    )
 
     grants = db.scalars(
         select(RewardGrant).where(
@@ -347,6 +384,8 @@ def refund_order(
             "refundAmount": refund_amount,
             "dailyTotal": new_daily_total,
             "revokedGrantIds": revoked_grants,
+            "wifiMinutesRevoked": wifi_minutes_revoked,
+            "wifiPass": pass_data(wifi_pass, now=now) if wifi_pass is not None else None,
         }
     )
     if idempotency_key:
@@ -366,7 +405,11 @@ def refund_order(
         resource_type="Order",
         resource_id=order.id,
         actor_type="POS_CLIENT",
-        metadata={"refundAmount": refund_amount, "reason": payload.reason},
+        metadata={
+            "refundAmount": refund_amount,
+            "wifiMinutesRevoked": wifi_minutes_revoked,
+            "reason": payload.reason,
+        },
     )
     publish_event(
         db,
@@ -377,6 +420,7 @@ def refund_order(
         payload={
             "orderId": order.id,
             "refundAmount": refund_amount,
+            "wifiMinutesRevoked": wifi_minutes_revoked,
             "status": order.status,
         },
     )

@@ -26,7 +26,7 @@
 | 즉시 혜택 소비 | `reward_redemptions`, 다음 주문 자동 소비, Wi-Fi 종일권 |
 | Admin 로그인 | `POST /admin/login` |
 | Admin Refresh Rotation | `/admin/refresh`, `/admin/logout`, `/admin/me` |
-| Admin 활성 목록·연장·종료 | `/admin/passes/*` |
+| Admin 활성 목록·연장·종료·차단 | `/admin/passes/*` (`/admin/passes/{id}/block`, `/api/v1` 별칭 포함) |
 | Wi-Fi 정책 | `/admin/wifi/policies` 조회·simulate·publish + 버전 충돌 |
 | AI 추천 1건 승인·거절 | `/admin/ai/recommendations/*` |
 | 실제 OpenAI 추천 생성 | `POST /admin/ai/recommendations/generate` + Responses API Structured Outputs + 규칙 fallback |

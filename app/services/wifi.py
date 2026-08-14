@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import ceil
 
 from sqlalchemy import select
@@ -11,6 +11,47 @@ from app.time import aware, db_now, normalize
 
 
 TERMINAL_PASS_STATUSES = {"EXPIRED", "BLOCKED", "CANCELLED", "FAILED"}
+PASS_REACTIVATION_BLOCKED_STATUSES = {"BLOCKED", "CANCELLED", "FAILED"}
+
+
+def prorated_refunded_wifi_minutes(
+    *, wifi_minutes: int, total_amount: int, refunded_amount: int
+) -> int:
+    """Return the Wi-Fi minutes attributable to the refunded amount."""
+
+    if wifi_minutes <= 0 or total_amount <= 0 or refunded_amount <= 0:
+        return 0
+    return min(
+        wifi_minutes,
+        (wifi_minutes * refunded_amount + total_amount - 1) // total_amount,
+    )
+
+
+def reclaim_wifi_minutes(
+    wifi_pass: WiFiPass | None, *, minutes: int, now: datetime | None = None
+) -> int:
+    """Remove unexpired Wi-Fi time and expire the pass when no time remains."""
+
+    if wifi_pass is None or minutes <= 0 or wifi_pass.status in TERMINAL_PASS_STATUSES:
+        return 0
+
+    current_time = normalize(now) if now is not None else db_now()
+    current_expiry = normalize(wifi_pass.expires_at)
+    if current_expiry <= current_time:
+        return 0
+
+    next_expiry = max(current_time, current_expiry - timedelta(minutes=minutes))
+    removed_minutes = ceil((current_expiry - next_expiry).total_seconds() / 60)
+    if next_expiry == current_expiry:
+        return 0
+
+    wifi_pass.expires_at = next_expiry
+    wifi_pass.version += 1
+    if next_expiry <= current_time:
+        revoke(wifi_pass.network_reference or "")
+        wifi_pass.status = "EXPIRED"
+        wifi_pass.network_reference = None
+    return removed_minutes
 
 
 def pass_data(wifi_pass: WiFiPass, *, now: datetime | None = None) -> dict:

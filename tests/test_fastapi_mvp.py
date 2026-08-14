@@ -13,7 +13,10 @@ from app.models import (
     DailySpendBalance,
     Order,
     Product,
+    RewardBenefit,
     RewardGrant,
+    RewardRedemption,
+    RewardTier,
     Store,
     WiFiPass,
 )
@@ -184,7 +187,7 @@ def test_exchange_reports_additional_order_minutes(client):
 
 
 def test_pdf_admin_flow_and_ai_decision(client):
-    order = create_order(client, "ORDER-ADMIN")
+    order = create_order(client, "ORDER-ADMIN", phone="010-9999-0100")
     data = order.json()["data"]
     login = client.post("/admin/login", json={"username": "owner", "password": "password"})
     assert login.status_code == 200
@@ -204,7 +207,7 @@ def test_pdf_admin_flow_and_ai_decision(client):
         json={},
     )
     assert expire.status_code == 200
-    assert expire.json()["data"]["status"] == "EXPIRED"
+    assert expire.json()["data"]["status"] == "CANCELLED"
     with SessionLocal() as db:
         event_types = set(
             db.scalars(
@@ -224,6 +227,65 @@ def test_pdf_admin_flow_and_ai_decision(client):
         json={"storeId": store_id, "version": recommendation["version"]},
     )
     assert accepted.status_code == 201
+
+
+def test_admin_expire_does_not_reactivate_on_additional_order(client):
+    first = create_order(client, "ORDER-MANUAL-EXPIRE", phone="010-9999-0101")
+    assert first.status_code == 201
+    pass_id = first.json()["data"]["wifiPass"]["passId"]
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+
+    expired = client.post(f"/admin/passes/{pass_id}/expire", headers=auth, json={})
+    assert expired.status_code == 200
+    assert expired.json()["data"]["status"] == "CANCELLED"
+
+    second = create_order(client, "ORDER-MANUAL-EXPIRE-SECOND", phone="010-9999-0101")
+    assert second.status_code == 409
+    with SessionLocal() as db:
+        assert db.get(WiFiPass, pass_id).status == "CANCELLED"
+        assert db.scalar(select(Order).where(Order.external_order_id == "ORDER-MANUAL-EXPIRE-SECOND")) is None
+
+
+def test_natural_expiry_can_be_extended_by_additional_order(client):
+    first = create_order(client, "ORDER-NATURAL-EXPIRE", phone="010-9999-0102")
+    pass_id = first.json()["data"]["wifiPass"]["passId"]
+    with SessionLocal() as db:
+        wifi_pass = db.get(WiFiPass, pass_id)
+        wifi_pass.status = "EXPIRED"
+        wifi_pass.expires_at = db_now() - timedelta(minutes=1)
+        db.commit()
+
+    second = create_order(client, "ORDER-NATURAL-EXPIRE-SECOND", phone="010-9999-0102")
+    assert second.status_code == 201
+    assert second.json()["data"]["wifiPass"]["status"] == "ACTIVE"
+
+
+def test_admin_extend_cannot_revive_manually_cancelled_pass(client):
+    order = create_order(client, "ORDER-EXTEND-CANCELLED", phone="010-9999-0103")
+    pass_id = order.json()["data"]["wifiPass"]["passId"]
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+    cancelled = client.post(f"/admin/passes/{pass_id}/expire", headers=auth, json={})
+    assert cancelled.status_code == 200
+
+    with SessionLocal() as db:
+        before = db.get(WiFiPass, pass_id)
+        before_expiry = before.expires_at
+        before_version = before.version
+
+    extended = client.post(
+        f"/admin/passes/{pass_id}/extend",
+        headers=auth,
+        json={"minutes": 30},
+    )
+
+    assert extended.status_code == 409
+    with SessionLocal() as db:
+        after = db.get(WiFiPass, pass_id)
+        assert after.status == "CANCELLED"
+        assert after.expires_at == before_expiry
+        assert after.version == before_version
 
 
 def test_admin_can_block_pass_and_publish_event(monkeypatch, client):
@@ -269,6 +331,22 @@ def test_admin_can_block_pass_and_publish_event(monkeypatch, client):
         )
         assert event is not None
         assert event.payload["reason"] == "시연 중 관리자 차단"
+
+
+def test_admin_block_route_is_available_for_frontend_api_alias(client):
+    order = create_order(client, "ORDER-BLOCK-ALIAS", phone="010-9999-0002")
+    pass_id = order.json()["data"]["wifiPass"]["passId"]
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+
+    blocked = client.post(
+        f"/api/v1/admin/passes/{pass_id}/block",
+        headers=auth,
+        json={"reason": "프론트 호환 경로 확인"},
+    )
+
+    assert blocked.status_code == 200
+    assert blocked.json()["data"]["status"] == "BLOCKED"
 
 
 def test_admin_sse_accepts_access_cookie(monkeypatch, client):
@@ -497,6 +575,50 @@ def test_immediate_reward_is_consumed_by_the_next_order(client):
     assert second.json()["data"]["appliedRewards"][0]["status"] == "CONSUMED"
 
 
+def test_wifi_day_pass_reward_cannot_extend_expired_pass(client):
+    order = create_order(
+        client,
+        "ORDER-EXPIRED-DAY-PASS",
+        total=20000,
+        item_unit_price=20000,
+        phone="010-5555-0006",
+    )
+    assert order.status_code == 201
+    data = order.json()["data"]
+    session = portal_session(client, data, phone="010-5555-0006")
+    with SessionLocal() as db:
+        grant = db.scalar(
+            select(RewardGrant)
+            .join(RewardTier, RewardTier.id == RewardGrant.tier_id)
+            .where(
+                RewardGrant.id.in_(data["newRewardGrantIds"]),
+                RewardTier.threshold_amount == 20000,
+            )
+        )
+        benefit = db.scalar(
+            select(RewardBenefit).where(
+                RewardBenefit.tier_id == grant.tier_id,
+                RewardBenefit.benefit_type == "WIFI_DAY_PASS",
+            )
+        )
+        wifi_pass = db.get(WiFiPass, data["wifiPass"]["passId"])
+        wifi_pass.status = "EXPIRED"
+        db.commit()
+
+    chosen = client.post(
+        f"/public/rewards/{grant.id}/choose",
+        headers={"X-Portal-Session": session},
+        json={"benefitId": benefit.id, "fulfillMode": "IMMEDIATE"},
+    )
+
+    assert chosen.status_code == 409
+    with SessionLocal() as db:
+        assert db.get(RewardGrant, grant.id).status == "AWAITING_CHOICE"
+        assert db.scalar(
+            select(RewardRedemption).where(RewardRedemption.grant_id == grant.id)
+        ) is None
+
+
 def test_admin_refresh_rotates_and_logout_revokes_refresh_token(client):
     login = client.post("/admin/login", json={"username": "owner", "password": "password"})
     assert login.status_code == 200
@@ -677,6 +799,53 @@ def test_partial_and_full_refund_roll_back_daily_spend_and_revoke_unused_grants(
     )
     assert full_refund.status_code == 200
     assert full_refund.json()["data"]["status"] == "REFUNDED"
+
+
+def test_refund_reclaims_proportional_wifi_time(client):
+    order = create_order(
+        client,
+        "ORDER-REFUND-WIFI",
+        total=10000,
+        item_unit_price=10000,
+        phone="010-5555-0007",
+    )
+    order_data = order.json()["data"]
+    pass_id = order_data["wifiPass"]["passId"]
+    store_id, _ = ids()
+    with SessionLocal() as db:
+        order_row = db.get(Order, order_data["orderId"])
+        wifi_pass = db.get(WiFiPass, pass_id)
+        wifi_pass.status = "ACTIVE"
+        wifi_pass.expires_at = db_now() + timedelta(minutes=order_row.wifi_minutes)
+        before_expiry = wifi_pass.expires_at
+        expected_reclaim = (order_row.wifi_minutes + 1) // 2
+        db.commit()
+
+    partial = client.post(
+        f"/pos/orders/{order_data['orderId']}/refund",
+        headers={"X-Demo-Key": "demo-key"},
+        json={"storeId": store_id, "refundAmount": 5000},
+    )
+
+    assert partial.status_code == 200
+    assert partial.json()["data"]["wifiMinutesRevoked"] == expected_reclaim
+    with SessionLocal() as db:
+        wifi_pass = db.get(WiFiPass, pass_id)
+        assert wifi_pass.expires_at == before_expiry - timedelta(minutes=expected_reclaim)
+        assert wifi_pass.status == "ACTIVE"
+
+    full = client.post(
+        f"/pos/orders/{order_data['orderId']}/refund",
+        headers={"X-Demo-Key": "demo-key"},
+        json={"storeId": store_id, "refundAmount": 5000},
+    )
+
+    assert full.status_code == 200
+    assert full.json()["data"]["wifiMinutesRevoked"] == expected_reclaim
+    with SessionLocal() as db:
+        wifi_pass = db.get(WiFiPass, pass_id)
+        assert wifi_pass.status == "EXPIRED"
+        assert wifi_pass.network_reference is None
 
 
 def test_privacy_notice_and_problem_error_contract(client):

@@ -65,7 +65,11 @@ from app.services.recommendations import (
     generate_sales_summary_recommendation,
     generate_time_sale_recommendation,
 )
-from app.services.wifi import expire_due_passes, pass_data
+from app.services.wifi import (
+    PASS_REACTIVATION_BLOCKED_STATUSES,
+    expire_due_passes,
+    pass_data,
+)
 from app.time import aware, business_date as current_business_date, db_now
 
 
@@ -837,6 +841,8 @@ def extend_pass(
         payload.storeId and payload.storeId != wifi_pass.store_id
     ):
         raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    if wifi_pass.status in PASS_REACTIVATION_BLOCKED_STATUSES:
+        raise HTTPException(status_code=409, detail="현재 상태의 이용권은 연장할 수 없습니다.")
     wifi_pass.expires_at = max(wifi_pass.expires_at, db_now()) + timedelta(
         minutes=payload.minutes
     )
@@ -889,7 +895,9 @@ def expire_pass(
         raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
     if wifi_pass.status not in ["EXPIRED", "BLOCKED", "CANCELLED"]:
         revoke(wifi_pass.network_reference or "")
-        wifi_pass.status = "EXPIRED"
+        # 자연 만료(EXPIRED)와 관리자 강제 종료를 상태로 구분해
+        # 이후 POS 추가 주문이 이용권을 되살리지 않도록 합니다.
+        wifi_pass.status = "CANCELLED"
         wifi_pass.network_reference = None
         wifi_pass.version += 1
         record_audit(
