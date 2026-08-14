@@ -785,6 +785,51 @@ def test_partial_and_full_refund_roll_back_daily_spend_and_revoke_unused_grants(
     assert full_refund.json()["data"]["status"] == "REFUNDED"
 
 
+def test_refund_reclaims_proportional_wifi_time(client):
+    order = create_order(
+        client,
+        "ORDER-REFUND-WIFI",
+        total=10000,
+        item_unit_price=10000,
+        phone="010-5555-0007",
+    )
+    order_data = order.json()["data"]
+    pass_id = order_data["wifiPass"]["passId"]
+    store_id, _ = ids()
+    with SessionLocal() as db:
+        wifi_pass = db.get(WiFiPass, pass_id)
+        wifi_pass.status = "ACTIVE"
+        wifi_pass.expires_at = db_now() + timedelta(minutes=150)
+        before_expiry = wifi_pass.expires_at
+        db.commit()
+
+    partial = client.post(
+        f"/pos/orders/{order_data['orderId']}/refund",
+        headers={"X-Demo-Key": "demo-key"},
+        json={"storeId": store_id, "refundAmount": 5000},
+    )
+
+    assert partial.status_code == 200
+    assert partial.json()["data"]["wifiMinutesRevoked"] == 75
+    with SessionLocal() as db:
+        wifi_pass = db.get(WiFiPass, pass_id)
+        assert wifi_pass.expires_at == before_expiry - timedelta(minutes=75)
+        assert wifi_pass.status == "ACTIVE"
+
+    full = client.post(
+        f"/pos/orders/{order_data['orderId']}/refund",
+        headers={"X-Demo-Key": "demo-key"},
+        json={"storeId": store_id, "refundAmount": 5000},
+    )
+
+    assert full.status_code == 200
+    assert full.json()["data"]["wifiMinutesRevoked"] == 75
+    with SessionLocal() as db:
+        wifi_pass = db.get(WiFiPass, pass_id)
+        assert wifi_pass.status == "EXPIRED"
+        assert wifi_pass.network_reference is None
+
+
 def test_privacy_notice_and_problem_error_contract(client):
     store_id, _ = ids()
     privacy = client.get(f"/public/stores/{store_id}/privacy-notice")
