@@ -229,6 +229,46 @@ def test_pdf_admin_flow_and_ai_decision(client):
     assert accepted.status_code == 201
 
 
+def test_admin_orders_list_returns_store_orders_and_items(client):
+    order = create_order(client, "ORDER-ADMIN-LIST", phone="010-9999-0101")
+    assert order.status_code == 201
+    order_data = order.json()["data"]
+    store_id, product_id = ids()
+
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    assert login.status_code == 200
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+
+    response = client.get(
+        "/admin/orders",
+        params={"storeId": store_id},
+        headers=auth,
+    )
+
+    assert response.status_code == 200
+    matching = next(
+        item for item in response.json()["data"] if item["orderId"] == order_data["orderId"]
+    )
+    assert matching == {
+        "orderId": order_data["orderId"],
+        "externalOrderId": "ORDER-ADMIN-LIST",
+        "status": "PAID",
+        "totalAmount": 5000,
+        "refundedAmount": 0,
+        "businessDate": "2026-08-01",
+        "paidAt": "2026-08-01T12:00:00+00:00",
+        "phoneLast4": "0101",
+        "items": [
+            {
+                "productId": product_id,
+                "name": "아메리카노",
+                "quantity": 1,
+                "unitPrice": 5000,
+            }
+        ],
+    }
+
+
 def test_admin_expire_does_not_reactivate_on_additional_order(client):
     first = create_order(client, "ORDER-MANUAL-EXPIRE", phone="010-9999-0101")
     assert first.status_code == 201
