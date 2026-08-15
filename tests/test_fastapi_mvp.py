@@ -105,7 +105,8 @@ def test_pdf_customer_flow(client):
     )
     assert exchange.status_code == 200
     exchange_data = exchange.json()["data"]
-    _, product_id = ids()
+    store_id, product_id = ids()
+    assert exchange_data["storeId"] == store_id
     assert exchange_data["storeName"] == "테스트 카페"
     assert exchange_data["orderNo"] == "ORDER-1"
     assert exchange_data["items"] == [
@@ -227,6 +228,90 @@ def test_pdf_admin_flow_and_ai_decision(client):
         json={"storeId": store_id, "version": recommendation["version"]},
     )
     assert accepted.status_code == 201
+
+
+def test_admin_orders_list_returns_store_orders_and_items(client):
+    order = create_order(client, "ORDER-ADMIN-LIST", phone="010-9999-0101")
+    assert order.status_code == 201
+    order_data = order.json()["data"]
+    store_id, product_id = ids()
+
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    assert login.status_code == 200
+    auth = {"Authorization": f"Bearer {login.json()['data']['accessToken']}"}
+
+    response = client.get(
+        "/admin/orders",
+        params={"storeId": store_id},
+        headers=auth,
+    )
+
+    assert response.status_code == 200
+    matching = next(
+        item for item in response.json()["data"] if item["orderId"] == order_data["orderId"]
+    )
+    assert matching == {
+        "orderId": order_data["orderId"],
+        "externalOrderId": "ORDER-ADMIN-LIST",
+        "status": "PAID",
+        "totalAmount": 5000,
+        "refundedAmount": 0,
+        "businessDate": "2026-08-01",
+        "paidAt": "2026-08-01T12:00:00+00:00",
+        "phoneLast4": "0101",
+        "items": [
+            {
+                "productId": product_id,
+                "name": "아메리카노",
+                "quantity": 1,
+                "unitPrice": 5000,
+            }
+        ],
+    }
+
+
+def test_public_product_list_returns_only_active_store_products(client):
+    store_id, product_id = ids()
+    with SessionLocal() as db:
+        db.add(Product(store_id=store_id, name="카페라떼", price=5500, is_active=True))
+        db.add(Product(store_id=store_id, name="판매 중지 메뉴", price=1000, is_active=False))
+        db.commit()
+
+    response = client.get(f"/public/stores/{store_id}/products")
+
+    assert response.status_code == 200
+    products = response.json()["data"]
+    assert {item["productId"] for item in products} >= {product_id}
+    assert all(item["isActive"] is True for item in products)
+    assert {item["name"] for item in products} >= {"아메리카노", "카페라떼"}
+    assert "판매 중지 메뉴" not in {item["name"] for item in products}
+
+
+def test_public_reward_grant_list_is_scoped_to_portal_customer(client):
+    phone = "010-7777-1001"
+    first = create_order(client, "ORDER-REWARD-LIST-FIRST", total=5000, phone=phone)
+    second = create_order(client, "ORDER-REWARD-LIST-SECOND", total=5000, phone=phone)
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    first_data = first.json()["data"]
+    second_data = second.json()["data"]
+    session = portal_session(client, first_data, phone=phone)
+    response = client.get(
+        "/public/rewards/grants",
+        headers={"X-Portal-Session": session},
+    )
+
+    assert response.status_code == 200
+    grants = {item["grantId"]: item for item in response.json()["data"]}
+    first_grant_id = first_data["newRewardGrantIds"][0]
+    second_grant_id = second_data["newRewardGrantIds"][0]
+    assert grants[first_grant_id]["tierAmount"] == 5000
+    assert grants[second_grant_id]["tierAmount"] == 10000
+    assert grants[first_grant_id]["status"] == "AWAITING_CHOICE"
+    assert grants[first_grant_id]["chosenBenefitId"] is None
+    assert grants[first_grant_id]["fulfillMode"] is None
+    assert grants[first_grant_id]["createdAt"]
 
 
 def test_admin_expire_does_not_reactivate_on_additional_order(client):

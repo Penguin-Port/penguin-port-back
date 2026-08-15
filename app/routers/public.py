@@ -141,6 +141,7 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
             "requiresVerification": True,
             "passId": wifi_pass.id if wifi_pass else None,
             "expiresIn": 600,
+            "storeId": order.store_id,
             "storeName": store.name,
             "orderNo": order.external_order_id,
             "items": [
@@ -156,6 +157,28 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
             "paidAmount": order.total_amount,
             "providedMinutes": _provided_minutes(db, order),
         }
+    )
+
+
+@router.get("/public/stores/{store_id}/products")
+def list_products(store_id: str, db: Session = Depends(get_db)):
+    if db.get(Store, store_id) is None:
+        raise HTTPException(status_code=404, detail="매장을 찾을 수 없습니다.")
+    products = db.scalars(
+        select(Product)
+        .where(Product.store_id == store_id, Product.is_active.is_(True))
+        .order_by(Product.name.asc(), Product.id.asc())
+    ).all()
+    return success(
+        [
+            {
+                "productId": product.id,
+                "name": product.name,
+                "price": product.price,
+                "isActive": product.is_active,
+            }
+            for product in products
+        ]
     )
 
 
@@ -393,6 +416,38 @@ def _portal_grant(db: Session, claims: dict, grant_id: str) -> RewardGrant:
     ):
         raise HTTPException(status_code=404, detail="리워드 지급 건을 찾을 수 없습니다.")
     return grant
+
+
+@router.get("/public/rewards/grants")
+def list_reward_grants(
+    claims: dict = Depends(require_portal_session),
+    db: Session = Depends(get_db),
+):
+    grants = db.execute(
+        select(RewardGrant, RewardTier)
+        .join(RewardTier, RewardTier.id == RewardGrant.tier_id)
+        .where(
+            RewardGrant.store_id == claims["storeId"],
+            RewardGrant.customer_key == claims["customerKey"],
+        )
+        .order_by(RewardGrant.created_at.desc(), RewardGrant.id.desc())
+        .limit(500)
+    ).all()
+    return success(
+        [
+            {
+                "grantId": grant.id,
+                "businessDate": grant.business_date.isoformat(),
+                "tierId": grant.tier_id,
+                "tierAmount": tier.threshold_amount,
+                "status": grant.status,
+                "chosenBenefitId": grant.chosen_benefit_id,
+                "fulfillMode": grant.fulfill_mode,
+                "createdAt": grant.created_at.isoformat(),
+            }
+            for grant, tier in grants
+        ]
+    )
 
 
 @router.get("/public/rewards/grants/{grant_id}/options")
