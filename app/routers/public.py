@@ -417,6 +417,38 @@ def _portal_grant(db: Session, claims: dict, grant_id: str) -> RewardGrant:
     return grant
 
 
+@router.get("/public/rewards/grants")
+def list_reward_grants(
+    claims: dict = Depends(require_portal_session),
+    db: Session = Depends(get_db),
+):
+    grants = db.execute(
+        select(RewardGrant, RewardTier)
+        .join(RewardTier, RewardTier.id == RewardGrant.tier_id)
+        .where(
+            RewardGrant.store_id == claims["storeId"],
+            RewardGrant.customer_key == claims["customerKey"],
+        )
+        .order_by(RewardGrant.created_at.desc(), RewardGrant.id.desc())
+        .limit(500)
+    ).all()
+    return success(
+        [
+            {
+                "grantId": grant.id,
+                "businessDate": grant.business_date.isoformat(),
+                "tierId": grant.tier_id,
+                "tierAmount": tier.threshold_amount,
+                "status": grant.status,
+                "chosenBenefitId": grant.chosen_benefit_id,
+                "fulfillMode": grant.fulfill_mode,
+                "createdAt": grant.created_at.isoformat(),
+            }
+            for grant, tier in grants
+        ]
+    )
+
+
 @router.get("/public/rewards/grants/{grant_id}/options")
 def reward_options(
     grant_id: str,

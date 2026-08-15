@@ -286,6 +286,33 @@ def test_public_product_list_returns_only_active_store_products(client):
     assert "판매 중지 메뉴" not in {item["name"] for item in products}
 
 
+def test_public_reward_grant_list_is_scoped_to_portal_customer(client):
+    phone = "010-7777-1001"
+    first = create_order(client, "ORDER-REWARD-LIST-FIRST", total=5000, phone=phone)
+    second = create_order(client, "ORDER-REWARD-LIST-SECOND", total=5000, phone=phone)
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    first_data = first.json()["data"]
+    second_data = second.json()["data"]
+    session = portal_session(client, first_data, phone=phone)
+    response = client.get(
+        "/public/rewards/grants",
+        headers={"X-Portal-Session": session},
+    )
+
+    assert response.status_code == 200
+    grants = {item["grantId"]: item for item in response.json()["data"]}
+    first_grant_id = first_data["newRewardGrantIds"][0]
+    second_grant_id = second_data["newRewardGrantIds"][0]
+    assert grants[first_grant_id]["tierAmount"] == 5000
+    assert grants[second_grant_id]["tierAmount"] == 10000
+    assert grants[first_grant_id]["status"] == "AWAITING_CHOICE"
+    assert grants[first_grant_id]["chosenBenefitId"] is None
+    assert grants[first_grant_id]["fulfillMode"] is None
+    assert grants[first_grant_id]["createdAt"]
+
+
 def test_admin_expire_does_not_reactivate_on_additional_order(client):
     first = create_order(client, "ORDER-MANUAL-EXPIRE", phone="010-9999-0101")
     assert first.status_code == 201
