@@ -141,6 +141,7 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
             "requiresVerification": True,
             "passId": wifi_pass.id if wifi_pass else None,
             "expiresIn": 600,
+            "storeId": order.store_id,
             "storeName": store.name,
             "orderNo": order.external_order_id,
             "items": [

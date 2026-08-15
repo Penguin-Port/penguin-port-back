@@ -105,7 +105,8 @@ def test_pdf_customer_flow(client):
     )
     assert exchange.status_code == 200
     exchange_data = exchange.json()["data"]
-    _, product_id = ids()
+    store_id, product_id = ids()
+    assert exchange_data["storeId"] == store_id
     assert exchange_data["storeName"] == "테스트 카페"
     assert exchange_data["orderNo"] == "ORDER-1"
     assert exchange_data["items"] == [
