@@ -269,6 +269,23 @@ def test_admin_orders_list_returns_store_orders_and_items(client):
     }
 
 
+def test_public_product_list_returns_only_active_store_products(client):
+    store_id, product_id = ids()
+    with SessionLocal() as db:
+        db.add(Product(store_id=store_id, name="카페라떼", price=5500, is_active=True))
+        db.add(Product(store_id=store_id, name="판매 중지 메뉴", price=1000, is_active=False))
+        db.commit()
+
+    response = client.get(f"/public/stores/{store_id}/products")
+
+    assert response.status_code == 200
+    products = response.json()["data"]
+    assert {item["productId"] for item in products} >= {product_id}
+    assert all(item["isActive"] is True for item in products)
+    assert {item["name"] for item in products} >= {"아메리카노", "카페라떼"}
+    assert "판매 중지 메뉴" not in {item["name"] for item in products}
+
+
 def test_admin_expire_does_not_reactivate_on_additional_order(client):
     first = create_order(client, "ORDER-MANUAL-EXPIRE", phone="010-9999-0101")
     assert first.status_code == 201

@@ -159,6 +159,28 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
     )
 
 
+@router.get("/public/stores/{store_id}/products")
+def list_products(store_id: str, db: Session = Depends(get_db)):
+    if db.get(Store, store_id) is None:
+        raise HTTPException(status_code=404, detail="매장을 찾을 수 없습니다.")
+    products = db.scalars(
+        select(Product)
+        .where(Product.store_id == store_id, Product.is_active.is_(True))
+        .order_by(Product.name.asc(), Product.id.asc())
+    ).all()
+    return success(
+        [
+            {
+                "productId": product.id,
+                "name": product.name,
+                "price": product.price,
+                "isActive": product.is_active,
+            }
+            for product in products
+        ]
+    )
+
+
 def _verification_claims(ticket: str) -> dict:
     claims = decode_token(ticket)
     if claims.get("kind") != "verification_ticket":
