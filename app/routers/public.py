@@ -46,6 +46,24 @@ from app.time import business_date, business_day_end, db_now
 router = APIRouter(tags=["Public"])
 
 
+@router.get("/public/stores/{store_id}/products")
+def public_products(store_id: str, db: Session = Depends(get_db)):
+    store = db.get(Store, store_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail="매장을 찾을 수 없습니다.")
+    products = db.scalars(
+        select(Product)
+        .where(Product.store_id == store_id, Product.is_active.is_(True))
+        .order_by(Product.name)
+    ).all()
+    return success(
+        [
+            {"productId": product.id, "name": product.name, "price": product.price}
+            for product in products
+        ]
+    )
+
+
 def _hash_code(challenge_id: str, code: str) -> str:
     return hmac.new(
         settings.jwt_secret.encode(),
@@ -141,6 +159,7 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
             "requiresVerification": True,
             "passId": wifi_pass.id if wifi_pass else None,
             "expiresIn": 600,
+            "storeId": store.id,
             "storeName": store.name,
             "orderNo": order.external_order_id,
             "items": [
@@ -393,6 +412,32 @@ def _portal_grant(db: Session, claims: dict, grant_id: str) -> RewardGrant:
     ):
         raise HTTPException(status_code=404, detail="리워드 지급 건을 찾을 수 없습니다.")
     return grant
+
+
+@router.get("/public/rewards/grants")
+def list_reward_grants(
+    claims: dict = Depends(require_portal_session),
+    db: Session = Depends(get_db),
+):
+    grants = db.scalars(
+        select(RewardGrant)
+        .where(
+            RewardGrant.store_id == claims["storeId"],
+            RewardGrant.customer_key == claims["customerKey"],
+            RewardGrant.status == "AWAITING_CHOICE",
+        )
+        .order_by(RewardGrant.created_at.asc())
+    ).all()
+    return success(
+        [
+            {
+                "grantId": grant.id,
+                "status": grant.status,
+                "businessDate": grant.business_date.isoformat(),
+            }
+            for grant in grants
+        ]
+    )
 
 
 @router.get("/public/rewards/grants/{grant_id}/options")
