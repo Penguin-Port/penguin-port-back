@@ -260,6 +260,52 @@ def me(
     )
 
 
+def _admin_order_data(db: Session, order: Order) -> dict:
+    items = db.scalars(
+        select(OrderItem)
+        .where(OrderItem.order_id == order.id)
+        .order_by(OrderItem.id)
+    ).all()
+    return {
+        "orderId": order.id,
+        "externalOrderId": order.external_order_id,
+        "status": order.status,
+        "totalAmount": order.total_amount,
+        "refundedAmount": order.refunded_amount,
+        "businessDate": order.business_date.isoformat(),
+        "paidAt": aware(order.paid_at).isoformat(),
+        "phoneLast4": order.phone_last4,
+        "items": [
+            {
+                "productId": item.product_id,
+                "name": item.name_snapshot,
+                "quantity": item.quantity,
+                "unitPrice": item.unit_price,
+            }
+            for item in items
+        ],
+    }
+
+
+@router.get("/admin/orders")
+def list_orders(
+    store_id: str | None = Query(default=None, alias="storeId"),
+    limit: int = Query(default=500, ge=1, le=500),
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    requested_store = store_id or claims["storeId"]
+    if requested_store != claims["storeId"]:
+        raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
+    orders = db.scalars(
+        select(Order)
+        .where(Order.store_id == requested_store)
+        .order_by(Order.paid_at.desc(), Order.id.desc())
+        .limit(limit)
+    ).all()
+    return success([_admin_order_data(db, order) for order in orders])
+
+
 def _team_member_data(user: AdminUser) -> dict:
     return {
         "adminId": user.id,
@@ -269,67 +315,6 @@ def _team_member_data(user: AdminUser) -> dict:
         "isActive": user.is_active,
         "createdAt": aware(user.created_at).isoformat() if user.created_at else None,
     }
-
-
-@router.get("/admin/orders")
-def list_orders(
-    limit: int = Query(default=100, ge=1, le=500),
-    claims: dict = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    store_id = claims["storeId"]
-    orders = db.scalars(
-        select(Order)
-        .where(Order.store_id == store_id)
-        .order_by(Order.paid_at.desc())
-        .limit(limit)
-    ).all()
-
-    result = []
-    for order in orders:
-        items = db.scalars(select(OrderItem).where(OrderItem.order_id == order.id)).all()
-        wifi_pass = db.scalar(
-            select(WiFiPass).where(
-                WiFiPass.store_id == store_id,
-                WiFiPass.customer_key == order.customer_key,
-                WiFiPass.business_date == order.business_date,
-            )
-        )
-        reward = db.scalar(
-            select(RewardGrant)
-            .where(
-                RewardGrant.store_id == store_id,
-                RewardGrant.customer_key == order.customer_key,
-                RewardGrant.business_date == order.business_date,
-            )
-            .order_by(RewardGrant.created_at.desc())
-        )
-        result.append(
-            {
-                "orderId": order.id,
-                "externalOrderId": order.external_order_id,
-                "status": order.status,
-                "totalAmount": order.total_amount,
-                "refundedAmount": order.refunded_amount,
-                "businessDate": order.business_date.isoformat(),
-                "paidAt": order.paid_at.isoformat(),
-                "phoneLast4": order.phone_last4,
-                "wifiMinutes": order.wifi_minutes,
-                "wifiPassStatus": wifi_pass.status if wifi_pass else None,
-                "rewardStatus": reward.status if reward else None,
-                "items": [
-                    {
-                        "productId": item.product_id,
-                        "name": item.name_snapshot,
-                        "quantity": item.quantity,
-                        "unitPrice": item.unit_price,
-                    }
-                    for item in items
-                ],
-            }
-        )
-
-    return success(result)
 
 
 @router.get("/admin/team")

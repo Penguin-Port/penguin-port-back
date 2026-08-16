@@ -46,24 +46,6 @@ from app.time import business_date, business_day_end, db_now
 router = APIRouter(tags=["Public"])
 
 
-@router.get("/public/stores/{store_id}/products")
-def public_products(store_id: str, db: Session = Depends(get_db)):
-    store = db.get(Store, store_id)
-    if store is None:
-        raise HTTPException(status_code=404, detail="매장을 찾을 수 없습니다.")
-    products = db.scalars(
-        select(Product)
-        .where(Product.store_id == store_id, Product.is_active.is_(True))
-        .order_by(Product.name)
-    ).all()
-    return success(
-        [
-            {"productId": product.id, "name": product.name, "price": product.price}
-            for product in products
-        ]
-    )
-
-
 def _hash_code(challenge_id: str, code: str) -> str:
     return hmac.new(
         settings.jwt_secret.encode(),
@@ -159,7 +141,7 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
             "requiresVerification": True,
             "passId": wifi_pass.id if wifi_pass else None,
             "expiresIn": 600,
-            "storeId": store.id,
+            "storeId": order.store_id,
             "storeName": store.name,
             "orderNo": order.external_order_id,
             "items": [
@@ -175,6 +157,28 @@ def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db))
             "paidAmount": order.total_amount,
             "providedMinutes": _provided_minutes(db, order),
         }
+    )
+
+
+@router.get("/public/stores/{store_id}/products")
+def list_products(store_id: str, db: Session = Depends(get_db)):
+    if db.get(Store, store_id) is None:
+        raise HTTPException(status_code=404, detail="매장을 찾을 수 없습니다.")
+    products = db.scalars(
+        select(Product)
+        .where(Product.store_id == store_id, Product.is_active.is_(True))
+        .order_by(Product.name.asc(), Product.id.asc())
+    ).all()
+    return success(
+        [
+            {
+                "productId": product.id,
+                "name": product.name,
+                "price": product.price,
+                "isActive": product.is_active,
+            }
+            for product in products
+        ]
     )
 
 
@@ -419,23 +423,29 @@ def list_reward_grants(
     claims: dict = Depends(require_portal_session),
     db: Session = Depends(get_db),
 ):
-    grants = db.scalars(
-        select(RewardGrant)
+    grants = db.execute(
+        select(RewardGrant, RewardTier)
+        .join(RewardTier, RewardTier.id == RewardGrant.tier_id)
         .where(
             RewardGrant.store_id == claims["storeId"],
             RewardGrant.customer_key == claims["customerKey"],
-            RewardGrant.status == "AWAITING_CHOICE",
         )
-        .order_by(RewardGrant.created_at.asc())
+        .order_by(RewardGrant.created_at.desc(), RewardGrant.id.desc())
+        .limit(500)
     ).all()
     return success(
         [
             {
                 "grantId": grant.id,
-                "status": grant.status,
                 "businessDate": grant.business_date.isoformat(),
+                "tierId": grant.tier_id,
+                "tierAmount": tier.threshold_amount,
+                "status": grant.status,
+                "chosenBenefitId": grant.chosen_benefit_id,
+                "fulfillMode": grant.fulfill_mode,
+                "createdAt": grant.created_at.isoformat(),
             }
-            for grant in grants
+            for grant, tier in grants
         ]
     )
 
