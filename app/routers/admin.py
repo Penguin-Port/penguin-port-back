@@ -21,6 +21,7 @@ from app.models import (
     AdminUser,
     AIRecommendation,
     AuditLog,
+    Coupon,
     InventoryItem,
     InventoryEvent,
     Order,
@@ -29,6 +30,8 @@ from app.models import (
     Promotion,
     RefreshTokenSession,
     RewardBenefit,
+    RewardGrant,
+    RewardRedemption,
     RewardTier,
     Store,
     WiFiPass,
@@ -573,6 +576,52 @@ def _reward_tier_data(db: Session, tier: RewardTier) -> dict:
             for benefit in benefits
         ],
     }
+
+
+@router.get("/admin/rewards/history")
+def reward_history(
+    limit: int = Query(default=100, ge=1, le=500),
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    grants = db.scalars(
+        select(RewardGrant)
+        .where(RewardGrant.store_id == claims["storeId"])
+        .order_by(RewardGrant.created_at.desc())
+        .limit(limit)
+    ).all()
+
+    result = []
+    for grant in grants:
+        tier = db.get(RewardTier, grant.tier_id)
+        benefit = db.get(RewardBenefit, grant.chosen_benefit_id) if grant.chosen_benefit_id else None
+        coupon = db.scalar(select(Coupon).where(Coupon.grant_id == grant.id))
+        redemption = db.scalar(
+            select(RewardRedemption).where(RewardRedemption.grant_id == grant.id)
+        )
+
+        if coupon is not None:
+            status = coupon.status
+            occurred_at = coupon.redeemed_at or coupon.created_at
+        elif redemption is not None:
+            status = redemption.status
+            occurred_at = redemption.consumed_at or redemption.created_at
+        else:
+            status = grant.status
+            occurred_at = grant.fulfilled_at or grant.created_at
+
+        result.append(
+            {
+                "rewardGrantId": grant.id,
+                "tierAmount": tier.threshold_amount if tier else 0,
+                "benefitTitle": benefit.title if benefit else None,
+                "fulfillMode": grant.fulfill_mode,
+                "status": status,
+                "occurredAt": aware(occurred_at).isoformat() if occurred_at else None,
+            }
+        )
+
+    return success(result)
 
 
 @router.get("/admin/rewards/tiers")
