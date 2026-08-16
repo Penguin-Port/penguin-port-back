@@ -21,12 +21,17 @@ from app.models import (
     AdminUser,
     AIRecommendation,
     AuditLog,
+    Coupon,
     InventoryItem,
     InventoryEvent,
+    Order,
+    OrderItem,
     Product,
     Promotion,
     RefreshTokenSession,
     RewardBenefit,
+    RewardGrant,
+    RewardRedemption,
     RewardTier,
     Store,
     WiFiPass,
@@ -264,6 +269,67 @@ def _team_member_data(user: AdminUser) -> dict:
         "isActive": user.is_active,
         "createdAt": aware(user.created_at).isoformat() if user.created_at else None,
     }
+
+
+@router.get("/admin/orders")
+def list_orders(
+    limit: int = Query(default=100, ge=1, le=500),
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    store_id = claims["storeId"]
+    orders = db.scalars(
+        select(Order)
+        .where(Order.store_id == store_id)
+        .order_by(Order.paid_at.desc())
+        .limit(limit)
+    ).all()
+
+    result = []
+    for order in orders:
+        items = db.scalars(select(OrderItem).where(OrderItem.order_id == order.id)).all()
+        wifi_pass = db.scalar(
+            select(WiFiPass).where(
+                WiFiPass.store_id == store_id,
+                WiFiPass.customer_key == order.customer_key,
+                WiFiPass.business_date == order.business_date,
+            )
+        )
+        reward = db.scalar(
+            select(RewardGrant)
+            .where(
+                RewardGrant.store_id == store_id,
+                RewardGrant.customer_key == order.customer_key,
+                RewardGrant.business_date == order.business_date,
+            )
+            .order_by(RewardGrant.created_at.desc())
+        )
+        result.append(
+            {
+                "orderId": order.id,
+                "externalOrderId": order.external_order_id,
+                "status": order.status,
+                "totalAmount": order.total_amount,
+                "refundedAmount": order.refunded_amount,
+                "businessDate": order.business_date.isoformat(),
+                "paidAt": order.paid_at.isoformat(),
+                "phoneLast4": order.phone_last4,
+                "wifiMinutes": order.wifi_minutes,
+                "wifiPassStatus": wifi_pass.status if wifi_pass else None,
+                "rewardStatus": reward.status if reward else None,
+                "items": [
+                    {
+                        "productId": item.product_id,
+                        "name": item.name_snapshot,
+                        "quantity": item.quantity,
+                        "unitPrice": item.unit_price,
+                    }
+                    for item in items
+                ],
+            }
+        )
+
+    return success(result)
 
 
 @router.get("/admin/team")
@@ -525,6 +591,52 @@ def _reward_tier_data(db: Session, tier: RewardTier) -> dict:
             for benefit in benefits
         ],
     }
+
+
+@router.get("/admin/rewards/history")
+def reward_history(
+    limit: int = Query(default=100, ge=1, le=500),
+    claims: dict = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    grants = db.scalars(
+        select(RewardGrant)
+        .where(RewardGrant.store_id == claims["storeId"])
+        .order_by(RewardGrant.created_at.desc())
+        .limit(limit)
+    ).all()
+
+    result = []
+    for grant in grants:
+        tier = db.get(RewardTier, grant.tier_id)
+        benefit = db.get(RewardBenefit, grant.chosen_benefit_id) if grant.chosen_benefit_id else None
+        coupon = db.scalar(select(Coupon).where(Coupon.grant_id == grant.id))
+        redemption = db.scalar(
+            select(RewardRedemption).where(RewardRedemption.grant_id == grant.id)
+        )
+
+        if coupon is not None:
+            status = coupon.status
+            occurred_at = coupon.redeemed_at or coupon.created_at
+        elif redemption is not None:
+            status = redemption.status
+            occurred_at = redemption.consumed_at or redemption.created_at
+        else:
+            status = grant.status
+            occurred_at = grant.fulfilled_at or grant.created_at
+
+        result.append(
+            {
+                "rewardGrantId": grant.id,
+                "tierAmount": tier.threshold_amount if tier else 0,
+                "benefitTitle": benefit.title if benefit else None,
+                "fulfillMode": grant.fulfill_mode,
+                "status": status,
+                "occurredAt": aware(occurred_at).isoformat() if occurred_at else None,
+            }
+        )
+
+    return success(result)
 
 
 @router.get("/admin/rewards/tiers")
