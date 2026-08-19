@@ -37,7 +37,7 @@ from app.services.wifi import (
     prorated_refunded_wifi_minutes,
     reclaim_wifi_minutes,
 )
-from app.time import business_date, db_now
+from app.time import business_date, db_now, normalize
 
 
 router = APIRouter(tags=["POS"])
@@ -169,7 +169,7 @@ def create_order(
         db.add(wifi_pass)
     else:
         minutes, snapshot = additional_order_minutes(payload.totalAmount, store.policy_config)
-        wifi_pass.expires_at = max(wifi_pass.expires_at, now) + timedelta(minutes=minutes)
+        wifi_pass.expires_at = max(normalize(wifi_pass.expires_at),normalize(now),) + timedelta(minutes=minutes)
         wifi_pass.version += 1
         wifi_pass.policy_snapshot = snapshot
         if wifi_pass.status == "EXPIRED":
