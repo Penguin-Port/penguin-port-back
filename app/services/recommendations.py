@@ -433,6 +433,20 @@ def generate_time_sale_recommendation(
     business_date: date,
     provider: RecommendationProvider | None = None,
 ) -> AIRecommendation:
+    existing_items = db.scalars(
+        select(AIRecommendation)
+        .where(
+            AIRecommendation.store_id == store.id,
+            AIRecommendation.type == "TIME_SALE",
+            AIRecommendation.status.in_(["PENDING", "EDITED", "ACCEPTED"]),
+        )
+        .order_by(AIRecommendation.created_at.desc())
+    ).all()
+
+    for item in existing_items:
+        if (item.payload or {}).get("businessDate") == business_date.isoformat():
+            return item
+            
     summary = sales_summary(db, store=store, business_date=business_date)
     features = build_ai_features(db, store=store, summary=summary)
     fallback = RuleBasedRecommendationProvider()
