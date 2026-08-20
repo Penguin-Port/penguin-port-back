@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -75,7 +76,8 @@ from app.services.wifi import (
     expire_due_passes,
     pass_data,
 )
-from app.time import aware, business_date as current_business_date, db_now
+from app.time import aware, business_date as current_business_date, db_now, normalize
+from integrations.providers import ProviderError
 
 
 router = APIRouter(tags=["Admin"])
@@ -198,12 +200,16 @@ def refresh(
     claims = decode_token(raw_token)
     if claims.get("kind") != "admin_refresh":
         raise HTTPException(status_code=401, detail="Refresh Token이 아닙니다.")
-    session = db.get(RefreshTokenSession, claims.get("sessionId"))
+    session = db.scalar(
+        select(RefreshTokenSession)
+        .where(RefreshTokenSession.id == claims.get("sessionId"))
+        .with_for_update()
+    )
     if (
         session is None
         or session.token_hash != hash_token(raw_token)
         or session.revoked_at is not None
-        or session.expires_at <= db_now()
+        or normalize(session.expires_at) <= normalize(db_now())
     ):
         raise HTTPException(status_code=401, detail="Refresh Token이 만료되었거나 폐기되었습니다.")
     user = db.get(AdminUser, session.admin_id)
@@ -931,7 +937,11 @@ def extend_pass(
     db: Session = Depends(get_db),
 ):
     _require_write_role(db, claims)
-    wifi_pass = db.get(WiFiPass, pass_id)
+    wifi_pass = db.scalar(
+        select(WiFiPass)
+        .where(WiFiPass.id == pass_id)
+        .with_for_update()
+    )
     if wifi_pass is None:
         raise HTTPException(status_code=404, detail="이용권을 찾을 수 없습니다.")
     if wifi_pass.store_id != claims["storeId"] or (
@@ -940,9 +950,10 @@ def extend_pass(
         raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
     if wifi_pass.status in PASS_REACTIVATION_BLOCKED_STATUSES:
         raise HTTPException(status_code=409, detail="현재 상태의 이용권은 연장할 수 없습니다.")
-    wifi_pass.expires_at = max(wifi_pass.expires_at, db_now()) + timedelta(
-        minutes=payload.minutes
-    )
+    wifi_pass.expires_at = max(
+        normalize(wifi_pass.expires_at),
+        normalize(db_now()),
+    ) + timedelta(minutes=payload.minutes)
     wifi_pass.version += 1
     if wifi_pass.status == "EXPIRED":
         wifi_pass.status = "ACTIVE"
@@ -982,7 +993,11 @@ def expire_pass(
     db: Session = Depends(get_db),
 ):
     _require_write_role(db, claims)
-    wifi_pass = db.get(WiFiPass, pass_id)
+    wifi_pass = db.scalar(
+        select(WiFiPass)
+        .where(WiFiPass.id == pass_id)
+        .with_for_update()
+    )
     if wifi_pass is None:
         raise HTTPException(status_code=404, detail="이용권을 찾을 수 없습니다.")
     requested_store = payload.storeId if payload else None
@@ -991,7 +1006,10 @@ def expire_pass(
     ):
         raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
     if wifi_pass.status not in ["EXPIRED", "BLOCKED", "CANCELLED"]:
-        revoke(wifi_pass.network_reference or "")
+        try:
+            revoke(wifi_pass.network_reference or "")
+        except ProviderError as exc:
+            raise HTTPException(status_code=502, detail=f"Wi-Fi 종료에 실패했습니다: {exc}") from exc
         # 자연 만료(EXPIRED)와 관리자 강제 종료를 상태로 구분해
         # 이후 POS 추가 주문이 이용권을 되살리지 않도록 합니다.
         wifi_pass.status = "CANCELLED"
@@ -1031,7 +1049,11 @@ def block_pass(
     db: Session = Depends(get_db),
 ):
     _require_write_role(db, claims)
-    wifi_pass = db.get(WiFiPass, pass_id)
+    wifi_pass = db.scalar(
+        select(WiFiPass)
+        .where(WiFiPass.id == pass_id)
+        .with_for_update()
+    )
     if wifi_pass is None:
         raise HTTPException(status_code=404, detail="이용권을 찾을 수 없습니다.")
 
@@ -1047,7 +1069,10 @@ def block_pass(
         raise HTTPException(status_code=409, detail="현재 상태의 이용권은 차단할 수 없습니다.")
 
     reason = (payload.reason if payload else "").strip()
-    revoke(wifi_pass.network_reference or "")
+    try:
+        revoke(wifi_pass.network_reference or "")
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=f"Wi-Fi 차단에 실패했습니다: {exc}") from exc
     wifi_pass.status = "BLOCKED"
     wifi_pass.network_reference = None
     wifi_pass.version += 1
@@ -1245,7 +1270,11 @@ def edit_recommendation(
     _require_write_role(db, claims)
     if payload.storeId != claims["storeId"]:
         raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
-    recommendation = db.get(AIRecommendation, recommendation_id)
+    recommendation = db.scalar(
+        select(AIRecommendation)
+        .where(AIRecommendation.id == recommendation_id)
+        .with_for_update()
+    )
     if recommendation is None or recommendation.store_id != claims["storeId"]:
         raise HTTPException(status_code=404, detail="AI 추천을 찾을 수 없습니다.")
     if recommendation.status not in {"PENDING", "EDITED"} or recommendation.version != payload.version:
@@ -1293,7 +1322,11 @@ def accept_recommendation(
     _require_write_role(db, claims)
     if payload.storeId != claims["storeId"]:
         raise HTTPException(status_code=403, detail="해당 매장에 접근할 권한이 없습니다.")
-    recommendation = db.get(AIRecommendation, recommendation_id)
+    recommendation = db.scalar(
+        select(AIRecommendation)
+        .where(AIRecommendation.id == recommendation_id)
+        .with_for_update()
+    )
     if recommendation is None or recommendation.store_id != claims["storeId"]:
         raise HTTPException(status_code=404, detail="AI 추천을 찾을 수 없습니다.")
     if recommendation.status not in {"PENDING", "EDITED"} or recommendation.version != payload.version:
@@ -1314,7 +1347,11 @@ def accept_recommendation(
     recommendation.version += 1
     recommendation.decided_at = db_now()
     db.add(promotion)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="이미 승인된 추천입니다.") from exc
     record_audit(
         db,
         store_id=recommendation.store_id,

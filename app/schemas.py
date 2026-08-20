@@ -11,13 +11,13 @@ class OrderItemRequest(BaseModel):
 
 
 class CustomerRequest(BaseModel):
-    memberId: str | None = None
+    memberId: str | None = Field(default=None, max_length=153)
     phone: str | None = None
 
 
 class PosOrderRequest(BaseModel):
     storeId: str
-    externalOrderId: str
+    externalOrderId: str = Field(min_length=1, max_length=120)
     customer: CustomerRequest
     items: list[OrderItemRequest] = Field(min_length=1)
     totalAmount: int = Field(ge=0)
@@ -141,13 +141,13 @@ class InventoryUpsertRequest(BaseModel):
     quantity: int = Field(ge=0)
     lowStockThreshold: int = Field(default=0, ge=0)
     expiresOn: date | None = None
-    unit: str = "EA"
+    unit: str = Field(default="EA", min_length=1, max_length=20)
 
 
 class InventoryAdjustRequest(BaseModel):
     storeId: str
     quantityDelta: int
-    reason: str = ""
+    reason: str = Field(default="", max_length=240)
 
 
 class RewardBenefitUpsertRequest(BaseModel):

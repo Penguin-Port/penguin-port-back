@@ -3,6 +3,7 @@ import hmac
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -35,12 +36,12 @@ from app.services.demo_network import authorize
 from app.services.audit import record_audit
 from app.services.events import publish_event
 from app.services.notifications import generate_otp, send_otp as deliver_otp
-from integrations.providers import get_notification_provider
+from integrations.providers import ProviderError, get_notification_provider
 from app.services.policy import additional_order_minutes, first_order_minutes
 from app.services.rewards import choose_benefit
 from app.services.wifi import TERMINAL_PASS_STATUSES, expire_due_passes, pass_data
 from app.security import masked_phone, phone_lookup_hash
-from app.time import business_date, business_day_end, db_now
+from app.time import business_date, business_day_end, db_now, normalize
 
 
 router = APIRouter(tags=["Public"])
@@ -90,13 +91,17 @@ def _provided_minutes(db: Session, order: Order) -> int:
 @router.post("/public/order-claims/exchange")
 def exchange_claim(payload: ClaimExchangeRequest, db: Session = Depends(get_db)):
     token_hash = hashlib.sha256(payload.orderClaim.encode()).hexdigest()
-    claim = db.scalar(select(OrderClaim).where(OrderClaim.token_hash == token_hash))
+    claim = db.scalar(
+        select(OrderClaim)
+        .where(OrderClaim.token_hash == token_hash)
+        .with_for_update()
+    )
     if claim is None:
         raise HTTPException(status_code=404, detail="주문 Claim이 유효하지 않습니다.")
-    now = db_now()
+    now = normalize(db_now())
     if claim.exchanged_at is not None:
         raise HTTPException(status_code=409, detail="이미 사용된 주문 Claim입니다.")
-    if claim.expires_at <= now:
+    if normalize(claim.expires_at) <= now:
         raise HTTPException(status_code=410, detail="주문 Claim이 만료되었습니다.")
     order = db.get(Order, claim.order_id)
     if order is None:
@@ -202,7 +207,7 @@ def send_otp(payload: OtpSendRequest, db: Session = Depends(get_db)):
     customer_key = f"phone:{lookup_hash}"
     if order.phone_lookup_hash != lookup_hash and customer_key != order.customer_key:
         raise HTTPException(status_code=422, detail="주문에 연결된 전화번호와 일치하지 않습니다.")
-    now = db_now()
+    now = normalize(db_now())
     recent_count = db.scalar(
         select(func.count(OtpChallenge.id)).where(
             OtpChallenge.order_id == order.id,
@@ -222,10 +227,10 @@ def send_otp(payload: OtpSendRequest, db: Session = Depends(get_db)):
     )
     db.add(challenge)
     db.flush()
-    provider = get_notification_provider()
-    code = generate_otp(configured_code=settings.demo_otp_code, provider_name=provider.name)
-    challenge.code_hash = _hash_code(challenge.id, code)
     try:
+        provider = get_notification_provider()
+        code = generate_otp(configured_code=settings.demo_otp_code, provider_name=provider.name)
+        challenge.code_hash = _hash_code(challenge.id, code)
         delivery = deliver_otp(
             db,
             store_id=order.store_id,
@@ -249,13 +254,17 @@ def send_otp(payload: OtpSendRequest, db: Session = Depends(get_db)):
 
 @router.post("/public/otp/confirm")
 def confirm_otp(payload: OtpConfirmRequest, db: Session = Depends(get_db)):
-    challenge = db.get(OtpChallenge, payload.challengeId)
+    challenge = db.scalar(
+        select(OtpChallenge)
+        .where(OtpChallenge.id == payload.challengeId)
+        .with_for_update()
+    )
     if challenge is None:
         raise HTTPException(status_code=404, detail="인증 요청을 찾을 수 없습니다.")
-    now = db_now()
+    now = normalize(db_now())
     if challenge.status != "PENDING":
         raise HTTPException(status_code=422, detail="이미 종료된 인증 요청입니다.")
-    if challenge.expires_at <= now:
+    if normalize(challenge.expires_at) <= now:
         challenge.status = "EXPIRED"
         db.commit()
         raise HTTPException(status_code=422, detail="인증번호가 만료되었습니다.")
@@ -303,16 +312,30 @@ def activate_pass(
     claims: dict = Depends(require_portal_session),
     db: Session = Depends(get_db),
 ):
-    wifi_pass = _portal_pass(db, claims, pass_id)
+    wifi_pass = db.scalar(
+        select(WiFiPass)
+        .where(
+            WiFiPass.id == pass_id,
+            WiFiPass.store_id == claims.get("storeId"),
+            WiFiPass.customer_key == claims.get("customerKey"),
+        )
+        .with_for_update()
+    )
+    if wifi_pass is None:
+        raise HTTPException(status_code=404, detail="이용권을 찾을 수 없습니다.")
     if wifi_pass.status not in ["ISSUED", "ACTIVATING"]:
         raise HTTPException(status_code=409, detail="활성화할 수 없는 이용권 상태입니다.")
-    if wifi_pass.expires_at <= db_now():
+    now = normalize(db_now())
+    if normalize(wifi_pass.expires_at) <= now:
         wifi_pass.status = "EXPIRED"
         db.commit()
         raise HTTPException(status_code=409, detail="이미 만료된 이용권입니다.")
     wifi_pass.status = "ACTIVE"
-    wifi_pass.activated_at = db_now()
-    wifi_pass.network_reference = authorize(wifi_pass.id)
+    wifi_pass.activated_at = now
+    try:
+        wifi_pass.network_reference = authorize(wifi_pass.id, expires_at=wifi_pass.expires_at)
+    except ProviderError as exc:
+        raise HTTPException(status_code=502, detail=f"Wi-Fi 활성화에 실패했습니다: {exc}") from exc
     publish_event(
         db,
         store_id=wifi_pass.store_id,
@@ -493,7 +516,17 @@ def choose_reward(
     claims: dict = Depends(require_portal_session),
     db: Session = Depends(get_db),
 ):
-    grant = _portal_grant(db, claims, grant_id)
+    grant = db.scalar(
+        select(RewardGrant)
+        .where(
+            RewardGrant.id == grant_id,
+            RewardGrant.store_id == claims["storeId"],
+            RewardGrant.customer_key == claims["customerKey"],
+        )
+        .with_for_update()
+    )
+    if grant is None:
+        raise HTTPException(status_code=404, detail="리워드 지급 건을 찾을 수 없습니다.")
     benefit = db.get(RewardBenefit, payload.benefitId)
     if benefit is None:
         raise HTTPException(status_code=404, detail="리워드 혜택을 찾을 수 없습니다.")
@@ -514,7 +547,7 @@ def choose_reward(
                 WiFiPass.store_id == grant.store_id,
                 WiFiPass.customer_key == grant.customer_key,
                 WiFiPass.business_date == grant.business_date,
-            )
+            ).with_for_update()
         )
         if store is None or wifi_pass is None:
             raise HTTPException(status_code=422, detail="종일권을 적용할 이용권이 없습니다.")
@@ -527,12 +560,15 @@ def choose_reward(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="이미 처리된 리워드 선택입니다.") from exc
     immediate = None
     if payload.fulfillMode == "IMMEDIATE":
         if day_pass_context is not None:
             store, wifi_pass = day_pass_context
             wifi_pass.expires_at = max(
-                wifi_pass.expires_at,
+                normalize(wifi_pass.expires_at),
                 business_day_end(
                     grant.business_date,
                     timezone_name=store.timezone,
@@ -554,7 +590,11 @@ def choose_reward(
             consumed_at=db_now() if current_order is not None else None,
         )
         db.add(redemption)
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError as exc:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="이미 처리된 리워드 선택입니다.") from exc
         immediate = {
             **(immediate or {}),
             "redemptionId": redemption.id,
@@ -605,10 +645,10 @@ def list_coupons(
         )
         .order_by(Coupon.created_at.desc(), Coupon.id.desc())
     ).all()
-    now = db_now()
+    now = normalize(db_now())
     changed = False
     for coupon in coupons:
-        if coupon.status == "AVAILABLE" and coupon.expires_at <= now:
+        if coupon.status == "AVAILABLE" and normalize(coupon.expires_at) <= now:
             coupon.status = "EXPIRED"
             changed = True
     if changed:
@@ -656,14 +696,14 @@ def redeem_coupon(
             Coupon.id == coupon_id,
             Coupon.store_id == claims["storeId"],
             Coupon.customer_key == claims["customerKey"],
-        )
+        ).with_for_update()
     )
     if coupon is None:
         raise HTTPException(status_code=404, detail="쿠폰을 찾을 수 없습니다.")
     if coupon.status != "AVAILABLE":
         raise HTTPException(status_code=409, detail="사용할 수 없는 쿠폰 상태입니다.")
-    now = db_now()
-    if coupon.expires_at <= now:
+    now = normalize(db_now())
+    if normalize(coupon.expires_at) <= now:
         coupon.status = "EXPIRED"
         db.commit()
         raise HTTPException(status_code=410, detail="쿠폰이 만료되었습니다.")
