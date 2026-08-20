@@ -6,6 +6,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import require_demo_key
@@ -89,6 +90,24 @@ def _existing_idempotent_response(
     return JSONResponse(content=record.response_json, status_code=record.status_code)
 
 
+def _recover_integrity_conflict(
+    db: Session,
+    *,
+    scope: str,
+    idempotency_key: str | None,
+    request_hash: str,
+    detail: str,
+) -> JSONResponse:
+    db.rollback()
+    if idempotency_key:
+        replay = _existing_idempotent_response(
+            db, scope=scope, key=idempotency_key, request_hash=request_hash
+        )
+        if replay is not None:
+            return replay
+    raise HTTPException(status_code=409, detail=detail)
+
+
 @router.post("/pos/orders", status_code=201)
 def create_order(
     payload: PosOrderRequest,
@@ -147,7 +166,7 @@ def create_order(
             WiFiPass.store_id == store.id,
             WiFiPass.customer_key == customer_key,
             WiFiPass.business_date == day,
-        )
+        ).with_for_update()
     )
     if wifi_pass is not None and wifi_pass.status in PASS_REACTIVATION_BLOCKED_STATUSES:
         raise HTTPException(
@@ -169,7 +188,10 @@ def create_order(
         db.add(wifi_pass)
     else:
         minutes, snapshot = additional_order_minutes(payload.totalAmount, store.policy_config)
-        wifi_pass.expires_at = max(normalize(wifi_pass.expires_at),normalize(now),) + timedelta(minutes=minutes)
+        wifi_pass.expires_at = max(
+            normalize(wifi_pass.expires_at),
+            normalize(now),
+        ) + timedelta(minutes=minutes)
         wifi_pass.version += 1
         wifi_pass.policy_snapshot = snapshot
         if wifi_pass.status == "EXPIRED":
@@ -279,7 +301,16 @@ def create_order(
             "wifiPassId": wifi_pass.id,
         },
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        return _recover_integrity_conflict(
+            db,
+            scope=scope,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            detail="이미 처리된 주문 또는 중복 요청입니다.",
+        )
     return response
 
 
@@ -291,7 +322,11 @@ def refund_order(
     _: None = Depends(require_demo_key),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    order = db.get(Order, order_id)
+    order = db.scalar(
+        select(Order)
+        .where(Order.id == order_id)
+        .with_for_update()
+    )
     if order is None or order.store_id != payload.storeId:
         raise HTTPException(status_code=404, detail="주문을 찾을 수 없습니다.")
     request_hash = _payload_hash(payload)
@@ -424,5 +459,14 @@ def refund_order(
             "status": order.status,
         },
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        return _recover_integrity_conflict(
+            db,
+            scope=scope,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            detail="이미 처리된 환불 요청입니다.",
+        )
     return response

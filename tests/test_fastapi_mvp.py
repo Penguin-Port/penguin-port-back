@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -599,6 +600,68 @@ def test_business_date_uses_store_timezone_and_cutoff():
     assert business_date(
         at_cutoff, timezone_name="Asia/Seoul", cutoff="02:00"
     ).isoformat() == "2026-08-03"
+
+
+def test_public_customer_flow_handles_aware_runtime_clock(monkeypatch, client):
+    from app.routers import public as public_router
+
+    monkeypatch.setattr(public_router, "db_now", lambda: datetime.now(timezone.utc))
+    customer_phone = f"010-{uuid4().int % 10000:04d}-{uuid4().int % 10000:04d}"
+
+    order = create_order(
+        client,
+        f"ORDER-AWARE-RUNTIME-CLOCK-{uuid4()}",
+        phone=customer_phone,
+    )
+    assert order.status_code == 201
+    order_data = order.json()["data"]
+
+    exchange = client.post(
+        "/public/order-claims/exchange",
+        json={"orderClaim": order_data["orderClaim"]["token"]},
+    )
+    assert exchange.status_code == 200
+
+    send = client.post(
+        "/public/otp/send",
+        json={
+            "verificationTicket": exchange.json()["data"]["verificationTicket"],
+            "phone": customer_phone,
+        },
+    )
+    assert send.status_code == 201
+
+    confirm = client.post(
+        "/public/otp/confirm",
+        json={"challengeId": send.json()["data"]["challengeId"], "code": "123456"},
+    )
+    assert confirm.status_code == 200
+    pass_id = confirm.json()["data"]["passId"]
+    with SessionLocal() as db:
+        wifi_pass = db.get(WiFiPass, pass_id)
+        wifi_pass.expires_at = db_now() + timedelta(minutes=30)
+        db.commit()
+
+    activate = client.post(
+        f"/public/passes/{pass_id}/activate",
+        headers={"X-Portal-Session": confirm.json()["data"]["portalSession"]},
+    )
+    assert activate.status_code == 200, activate.text
+
+
+def test_admin_refresh_handles_aware_runtime_clock(monkeypatch, client):
+    from app.routers import admin as admin_router
+
+    login = client.post("/admin/login", json={"username": "owner", "password": "password"})
+    assert login.status_code == 200
+
+    monkeypatch.setattr(admin_router, "db_now", lambda: datetime.now(timezone.utc))
+
+    refresh = client.post(
+        "/admin/refresh",
+        json={"refreshToken": login.json()["data"]["refreshToken"]},
+    )
+    assert refresh.status_code == 200
 
 
 def test_phone_is_not_persisted_as_plaintext(client):

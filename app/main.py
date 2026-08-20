@@ -160,6 +160,18 @@ async def validation_exception_handler(
     )
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(
+    request: Request,
+    _exc: Exception,
+):
+    return _problem_response(
+        request,
+        status=500,
+        detail="요청을 처리하는 중 서버 오류가 발생했습니다.",
+    )
+
+
 for router in (pos.router, public.router, admin.router):
     app.include_router(router)
 

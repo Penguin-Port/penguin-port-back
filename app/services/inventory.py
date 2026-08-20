@@ -97,7 +97,10 @@ def scan_inventory(db: Session, *, store_id: str, today: date | None = None) -> 
         # Ensure the seeded fallback has a valid two-hour approval window.
         from datetime import timedelta
 
-        recommendation.payload["endsAt"] = (db_now() + timedelta(hours=2)).isoformat()
+        recommendation.payload = {
+            **recommendation.payload,
+            "endsAt": (db_now() + timedelta(hours=2)).isoformat(),
+        }
         db.add(recommendation)
         db.flush()
         recommendations.append(recommendation)
